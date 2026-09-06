@@ -13,7 +13,7 @@ from .divergence import compare_text_views
 from .materiality import assess_representation_divergence
 from .tokenizers import observe_tokenizer
 
-ENGINE_VERSION = "0.4.0"
+ENGINE_VERSION = "0.5.0"
 SCHEMA_VERSION = "renderdiff.assurance.v1"
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 

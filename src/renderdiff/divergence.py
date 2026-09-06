@@ -24,15 +24,16 @@ def _common_suffix(a: str, b: str, prefix: int) -> int:
 
 
 def _bounded_fragment(text: str, start: int, end: int, *, limit: int = 96) -> dict:
-    fragment=text[start:end]
-    if len(fragment) <= limit:
+    length=end-start
+    if length <= limit:
+        fragment=text[start:end]
         return {"text":fragment,"truncated":False,"char_length":len(fragment)}
     head=limit//2
     tail=limit-head
     return {
-        "text":fragment[:head] + "…" + fragment[-tail:],
+        "text":text[start:start+head] + "…" + text[end-tail:end],
         "truncated":True,
-        "char_length":len(fragment),
+        "char_length":length,
     }
 
 
