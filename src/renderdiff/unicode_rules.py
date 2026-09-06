@@ -43,7 +43,7 @@ def is_variation(cp: int) -> bool:
 def is_invisible(ch: str) -> bool:
     cp = ord(ch)
     cat = unicodedata.category(ch)
-    return cp in ZERO_WIDTH or cp in SPECIAL_INVISIBLES or is_tag(cp) or is_variation(cp) or cat in {"Cf","Cc"}
+    return cp in ZERO_WIDTH or cp in SPECIAL_INVISIBLES or is_tag(cp) or is_variation(cp) or cat == "Cf" or (cat == "Cc" and cp not in {0x09, 0x0A, 0x0D})
 
 
 def confusable_skeleton(text: str, extra: dict[str,str] | None = None) -> str:
