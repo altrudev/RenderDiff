@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "renderdiff"
+version = "0.1.0"
+description = "Representation-divergence assurance for text and HTML"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [{name = "DDCAL"}]
+keywords = ["unicode", "security", "homoglyph", "bidi", "ascii-smuggling", "assurance"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Security",
+]
+
+[project.scripts]
+renderdiff = "renderdiff.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
