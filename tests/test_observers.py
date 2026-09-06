@@ -2,6 +2,7 @@ import unittest, sys
 sys.path.insert(0,"src")
 from renderdiff import analyze
 from renderdiff.browser import chromium_observe_html, find_chromium
+from renderdiff.divergence import compare_text_views
 from renderdiff.uts39 import UTS39_CONFUSABLES_SHA256, UTS39_VERSION
 
 class ObserverTests(unittest.TestCase):
@@ -23,7 +24,38 @@ class ObserverTests(unittest.TestCase):
         r=analyze("pay\u200bment")
         pairs=r["views"]["pairwise_divergence"]["comparisons"]
         hit=[x for x in pairs if {x["left"],x["right"]}=={"machine","human_projection"}]
-        self.assertEqual(len(hit),1); self.assertFalse(hit[0]["equal"])
+        self.assertEqual(len(hit),1)
+        edge=hit[0]
+        self.assertFalse(edge["equal"])
+        self.assertEqual(edge["relation"],"divergence")
+        self.assertEqual(edge["first_difference_index"],3)
+        self.assertEqual(edge["common_prefix_chars"],3)
+        self.assertEqual(edge["common_suffix_chars"],4)
+        machine_is_left=edge["left"]=="machine"
+        machine_fragment=edge["delta"]["left_fragment" if machine_is_left else "right_fragment"]
+        human_fragment=edge["delta"]["right_fragment" if machine_is_left else "left_fragment"]
+        self.assertEqual(machine_fragment["text"],"\u200b")
+        self.assertEqual(human_fragment["text"],"")
+
+    def test_pairwise_agreement_has_no_delta(self):
+        edge=compare_text_views({"a":"same","b":"same"})[0]
+        self.assertTrue(edge["equal"])
+        self.assertEqual(edge["relation"],"agreement")
+        self.assertIsNone(edge["first_difference_index"])
+        self.assertNotIn("delta",edge)
+
+    def test_pairwise_delta_is_bounded_for_large_middle(self):
+        a="prefix-" + ("A" * 1000) + "-suffix"
+        b="prefix-" + ("B" * 1000) + "-suffix"
+        edge=compare_text_views({"a":a,"b":b})[0]
+        self.assertEqual(edge["common_prefix_chars"],7)
+        self.assertEqual(edge["common_suffix_chars"],7)
+        self.assertEqual(edge["delta"]["left_fragment"]["char_length"],1000)
+        self.assertEqual(edge["delta"]["right_fragment"]["char_length"],1000)
+        self.assertTrue(edge["delta"]["left_fragment"]["truncated"])
+        self.assertTrue(edge["delta"]["right_fragment"]["truncated"])
+        self.assertLessEqual(len(edge["delta"]["left_fragment"]["text"]),97)
+        self.assertLessEqual(len(edge["delta"]["right_fragment"]["text"]),97)
 
     @unittest.skipUnless(find_chromium(),"Chromium not installed")
     def test_real_browser_inner_text(self):
