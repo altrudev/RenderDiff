@@ -57,6 +57,40 @@ class ObserverTests(unittest.TestCase):
         self.assertLessEqual(len(edge["delta"]["left_fragment"]["text"]),97)
         self.assertLessEqual(len(edge["delta"]["right_fragment"]["text"]),97)
 
+    def test_radial_visibility_boundary_is_evidence_backed(self):
+        r=analyze("pay\u200bment")
+        radial=r["views"]["radial_assessment"]
+        edge=next(x for x in radial["edges"] if x["boundary"]=="visibility")
+        self.assertEqual(edge["relation"],"divergence")
+        self.assertEqual(edge["materiality"],"potentially-material")
+        self.assertIn("invisible-unicode",edge["evidence_categories"])
+        self.assertEqual(edge["first_difference_index"],3)
+        self.assertTrue(radial["material_divergence"])
+
+    def test_radial_benign_ascii_has_no_material_boundary(self):
+        r=analyze("hello world")
+        radial=r["views"]["radial_assessment"]
+        self.assertFalse(radial["material_divergence"])
+        self.assertEqual(radial["disposition"],"none")
+        self.assertEqual(r["summary"]["radial_boundaries"],[])
+
+    def test_radial_identity_boundary_confusable(self):
+        r=analyze("microsоft.com")
+        edge=next(x for x in r["views"]["radial_assessment"]["edges"] if x["boundary"]=="identity")
+        self.assertEqual(edge["relation"],"divergence")
+        self.assertEqual(edge["materiality"],"potentially-material")
+        self.assertIn("confusable-homoglyph",edge["evidence_categories"])
+
+    def test_radial_standard_flag_tag_stays_context_dependent(self):
+        def tags(value):
+            return "".join(chr(0xE0000 + ord(c)) for c in value) + chr(0xE007F)
+        flag="\U0001F3F4" + tags("gbeng")
+        r=analyze(flag)
+        edge=next(x for x in r["views"]["radial_assessment"]["edges"] if x["boundary"]=="hidden-tag")
+        self.assertEqual(edge["relation"],"divergence")
+        self.assertEqual(edge["materiality"],"context-dependent")
+        self.assertFalse(r["views"]["radial_assessment"]["material_divergence"])
+
     @unittest.skipUnless(find_chromium(),"Chromium not installed")
     def test_real_browser_inner_text(self):
         html='<p>Visible</p><div style="display:none">Hidden</div>'

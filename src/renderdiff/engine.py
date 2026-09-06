@@ -10,9 +10,10 @@ from .unicode_rules import (
 from .htmlview import inspect_html
 from .uts39 import default_confusables, uts39_skeleton, UTS39_VERSION, UTS39_CONFUSABLES_SHA256
 from .divergence import compare_text_views
+from .materiality import assess_representation_divergence
 from .tokenizers import observe_tokenizer
 
-ENGINE_VERSION = "0.3.0"
+ENGINE_VERSION = "0.4.0"
 SCHEMA_VERSION = "renderdiff.assurance.v1"
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
@@ -297,6 +298,8 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
     if browser_view.get("available") and isinstance(browser_view.get("text"),str):
         observer_texts["browser_inner_text"]=browser_view["text"]
     pairwise=compare_text_views(observer_texts)
+    finding_dicts=[f.to_dict() for f in sorted(findings, key=lambda x:x.id)]
+    radial_assessment=assess_representation_divergence(pairwise, finding_dicts)
 
     result={
         "schema":SCHEMA_VERSION,"engine_version":ENGINE_VERSION,
@@ -309,6 +312,7 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
             "model_facing":model_view,
             "browser_render":browser_view,
             "pairwise_divergence":{"comparisons":pairwise},
+            "radial_assessment":radial_assessment,
             "semantic":semantic,
             "hidden":hidden_projection,
             "lineage":provenance or {},
@@ -319,9 +323,12 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
         },
         "summary":{
             "finding_count":len(findings),"severity":_severity(findings),
-            "material_divergence":bool(material),"categories":sorted({f.category for f in findings})
+            "material_divergence":bool(material),"categories":sorted({f.category for f in findings}),
+            "radial_disposition":radial_assessment["disposition"],
+            "radial_material_divergence":radial_assessment["material_divergence"],
+            "radial_boundaries":radial_assessment["boundaries"],
         },
-        "findings":[f.to_dict() for f in sorted(findings, key=lambda x:x.id)],
+        "findings":finding_dicts,
     }
     result["receipt"]={"canonical_json_sha256":_canonical_hash(result)}
     return result
