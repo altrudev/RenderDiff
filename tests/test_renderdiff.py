@@ -43,7 +43,9 @@ class RenderDiffTests(unittest.TestCase):
     def test_homoglyph(self):
         r=analyze("microsоft.com")  # Cyrillic o
         self.assertIn("confusable-homoglyph", r["summary"]["categories"])
-        self.assertIn("microsoft.com", r["views"]["confusable"]["skeleton"])
+        ref=analyze("microsoft.com")
+        self.assertEqual(r["views"]["confusable"]["skeleton"], ref["views"]["confusable"]["skeleton"])
+        self.assertEqual(r["views"]["confusable"]["mapping_scope"], "full-pinned-uts39")
         f=next(x for x in r["findings"] if x["category"]=="confusable-homoglyph")
         self.assertTrue(f["evidence"]["mixed_spoof_scripts"])
 

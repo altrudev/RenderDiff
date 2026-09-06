@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+from functools import lru_cache
 import hashlib
 import unicodedata
 
@@ -66,3 +67,9 @@ def uts39_skeleton(text: str, mapping: dict[str,str]) -> str:
     nfd=unicodedata.normalize("NFD", text)
     mapped="".join(mapping.get(ch,ch) for ch in nfd)
     return unicodedata.normalize("NFD", mapped)
+
+
+@lru_cache(maxsize=1)
+def default_confusables() -> dict[str,str]:
+    path=Path(__file__).with_name("data") / "confusables-17.0.0.txt"
+    return load_pinned_confusables(path)

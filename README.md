@@ -19,7 +19,7 @@ It is not a Unicode blacklist. It builds multiple deterministic views of the sam
 - Unicode Tag decoding / ASCII-smuggling evidence
 - exact validation of the standardized England/Scotland/Wales subdivision-tag sequences
 - bidi-control and direction-mark evidence
-- compact high-risk homoglyph/confusable skeleton
+- full pinned UTS #39 homoglyph/confusable skeleton
 - optional UTS #39 confusables loader with a cryptographically pinned stable Unicode data baseline
 - vendor-neutral watermark/steganographic hidden-carrier pattern evidence
 - HTML hidden-content detection for `hidden`, `aria-hidden`, common CSS hiding, classes/IDs, and hidden input values
@@ -29,6 +29,20 @@ It is not a Unicode blacklist. It builds multiple deterministic views of the sam
 - deterministic receipts for valid UTF-8 and invalid-byte evidence
 - human-readable report
 - CLI and Python API
+
+## v0.3 observer expansion
+
+RenderDiff v0.3.0 adds:
+
+- full pinned Unicode UTS #39 17.0.0 confusables data as the default skeleton source
+- SHA-256 provenance for the Unicode confusables dataset
+- deterministic pairwise comparison across machine, human projection, normalized, tag-stripped, confusable-skeleton, and browser views
+- optional real Chromium `body.innerText` observation for HTML
+- explicit render-observer divergence findings when heuristic and browser views disagree
+- tokenizer observer metadata plus optional tiktoken and SentencePiece adapters
+- a DDCAL API boundary where browser execution must be explicitly configured and requested
+
+The browser observer is intentionally not automatic. Active HTML is executed only when the host enables that observer, and high-assurance deployments should run Chromium inside their own OS/container sandbox.
 
 ## Install locally
 

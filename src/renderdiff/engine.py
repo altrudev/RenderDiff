@@ -8,8 +8,11 @@ from .unicode_rules import (
     cp_name, is_bidi_control, is_invisible, is_tag, is_variation, script_families,
 )
 from .htmlview import inspect_html
+from .uts39 import default_confusables, uts39_skeleton, UTS39_VERSION, UTS39_CONFUSABLES_SHA256
+from .divergence import compare_text_views
+from .tokenizers import observe_tokenizer
 
-ENGINE_VERSION = "0.2.0"
+ENGINE_VERSION = "0.3.0"
 SCHEMA_VERSION = "renderdiff.assurance.v1"
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
@@ -109,7 +112,8 @@ def _hidden_carrier_finding(text: str, codepoints: list[dict]) -> Finding | None
 
 
 def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[[str], list[int] | list[str]] | None = None,
-            provenance: dict | None = None, extra_confusables: dict[str,str] | None = None) -> dict:
+            tokenizer_name: str = "custom", provenance: dict | None = None, extra_confusables: dict[str,str] | None = None,
+            browser_observer: Callable[[str], dict] | None = None) -> dict:
     if not isinstance(text, str):
         raise TypeError("text must be str")
     raw=text.encode("utf-8")
@@ -187,12 +191,17 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
             explanation="Unicode normalization changes the stored representation; compatibility normalization may collapse distinctions."
         ))
 
-    skeleton=confusable_skeleton(text, extra_confusables)
+    mapping=default_confusables().copy()
+    if extra_confusables:
+        mapping.update(extra_confusables)
+    skeleton=uts39_skeleton(text, mapping)
     confusable_positions=[]
-    mapping = CONFUSABLES if not extra_confusables else {**CONFUSABLES, **extra_confusables}
     for i,ch in enumerate(text):
-        if ch in mapping and mapping[ch] != ch:
-            confusable_positions.append({"index":i,"char":ch,"codepoint":f"U+{ord(ch):04X}","maps_to":mapping[ch],"name":cp_name(ch)})
+        mapped=mapping.get(ch,ch)
+        # Full UTS #39 maps many ordinary ASCII characters. Presence alone is not
+        # evidence of spoofing, so exact-position findings focus on non-ASCII substitutions.
+        if ord(ch) > 127 and mapped != ch:
+            confusable_positions.append({"index":i,"char":ch,"codepoint":f"U+{ord(ch):04X}","maps_to":mapped,"name":cp_name(ch)})
     scripts=script_families(text)
     spoof_scripts=sorted(set(scripts) & {"Latin","Cyrillic","Greek"})
     mixed_spoof_scripts=len(spoof_scripts) > 1
@@ -205,7 +214,8 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
                 "skeleton":skeleton,"positions":confusable_positions,
                 "script_families":scripts,"spoof_script_families":spoof_scripts,
                 "mixed_spoof_scripts":mixed_spoof_scripts,
-                "mapping_scope":"compact-mvp-plus-caller-overrides",
+                "mapping_scope":"full-pinned-uts39-plus-caller-overrides",
+                "uts39_version":UTS39_VERSION,"uts39_confusables_sha256":UTS39_CONFUSABLES_SHA256,
             },
             explanation=(
                 "Visually confusable mappings occur across spoof-relevant script families."
@@ -215,8 +225,24 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
         ))
 
     html_view=None
+    browser_view={"available":False,"observer":None,"reason":"not-requested"}
     if content_type.lower().split(";",1)[0].strip() in {"text/html","application/xhtml+xml"}:
         html_view=inspect_html(text)
+        if browser_observer is not None:
+            browser_view=browser_observer(text)
+            if not isinstance(browser_view,dict):
+                raise TypeError("browser_observer must return a dict")
+            if browser_view.get("available") and isinstance(browser_view.get("text"),str):
+                browser_view={**browser_view,"char_length":len(browser_view["text"]),"sha256":_sha256(browser_view["text"].encode())}
+                if browser_view["text"] != html_view["visible_text"]:
+                    findings.append(Finding(
+                        id="render-observer-divergence", category="render-observer-divergence", severity="medium",
+                        materiality="potentially-material", start=None,end=None,
+                        evidence={"html_projection":html_view["visible_text"],"html_projection_sha256":_sha256(html_view["visible_text"].encode()),
+                                  "browser_inner_text":browser_view["text"],"browser_inner_text_sha256":browser_view["sha256"],
+                                  "observer":browser_view.get("observer")},
+                        explanation="Deterministic HTML visibility analysis and actual browser-rendered innerText disagree."
+                    ))
         if html_view["hidden_fragments"] or html_view.get("hidden_attributes"):
             findings.append(Finding(
                 id="html-hidden-content", category="hidden-html-css", severity="high", materiality="material",
@@ -242,13 +268,10 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
     model_view={
         "exact_text_sha256": _sha256(raw),
         "lexical_units": TOKEN_RE.findall(text),
-        "tokenizer": None,
+        "tokenizer": {"available":False,"name":None,"reason":"not-supplied"},
     }
     if tokenizer is not None:
-        toks=tokenizer(text)
-        if not isinstance(toks, list):
-            raise TypeError("tokenizer must return a list")
-        model_view["tokenizer"]={"token_count":len(toks),"tokens":toks}
+        model_view["tokenizer"]=observe_tokenizer(text,tokenizer,name=tokenizer_name)
 
     material = [f for f in findings if f.materiality in {"material","potentially-material"}]
     semantic={
@@ -262,6 +285,19 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
         "basis": sorted({f.category for f in material}),
     }
 
+
+    observer_texts={
+        "machine":text,
+        "human_projection":visible,
+        "nfc":nfc,
+        "nfkc":nfkc,
+        "tag_stripped":tag_stripped,
+        "confusable_skeleton":skeleton,
+    }
+    if browser_view.get("available") and isinstance(browser_view.get("text"),str):
+        observer_texts["browser_inner_text"]=browser_view["text"]
+    pairwise=compare_text_views(observer_texts)
+
     result={
         "schema":SCHEMA_VERSION,"engine_version":ENGINE_VERSION,
         "input":{"content_type":content_type,"byte_length":len(raw),"char_length":len(text),"sha256":_sha256(raw)},
@@ -271,11 +307,15 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
             "human_visible":{"text":visible,"sha256":_sha256(visible.encode())},
             "normalized":{"nfc":nfc,"nfkc":nfkc,"nfc_sha256":_sha256(nfc.encode()),"nfkc_sha256":_sha256(nfkc.encode())},
             "model_facing":model_view,
+            "browser_render":browser_view,
+            "pairwise_divergence":{"comparisons":pairwise},
             "semantic":semantic,
             "hidden":hidden_projection,
             "lineage":provenance or {},
             "tag_stripped":{"text":tag_stripped,"sha256":_sha256(tag_stripped.encode())},
-            "confusable":{"skeleton":skeleton,"sha256":_sha256(skeleton.encode()),"script_families":scripts},
+            "confusable":{"skeleton":skeleton,"sha256":_sha256(skeleton.encode()),"script_families":scripts,
+                          "mapping_scope":"full-pinned-uts39","uts39_version":UTS39_VERSION,
+                          "uts39_confusables_sha256":UTS39_CONFUSABLES_SHA256},
         },
         "summary":{
             "finding_count":len(findings),"severity":_severity(findings),

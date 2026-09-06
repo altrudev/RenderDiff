@@ -15,7 +15,7 @@ def _json_size(value: object) -> int:
     return len(encoded.encode("utf-8"))
 
 
-def analyze_request(payload: dict) -> dict:
+def analyze_request(payload: dict, *, browser_observer=None, tokenizer=None, tokenizer_name: str="custom") -> dict:
     """Stable public assurance boundary suitable for ddcal.ca adapters.
 
     Request: {"text": str, "content_type": str?, "provenance": object?}
@@ -45,4 +45,15 @@ def analyze_request(payload: dict) -> dict:
         if _json_size(provenance) > MAX_PROVENANCE_BYTES:
             raise ValueError(f"payload.provenance exceeds {MAX_PROVENANCE_BYTES} UTF-8 bytes")
 
-    return analyze(text, content_type=content_type, provenance=provenance)
+    browser_requested=payload.get("browser", False)
+    if not isinstance(browser_requested, bool):
+        raise ValueError("payload.browser must be boolean")
+    if browser_requested and browser_observer is None:
+        raise ValueError("browser observation requested but no browser observer is configured")
+    if browser_requested and not content_type.lower().startswith(("text/html","application/xhtml+xml")):
+        raise ValueError("browser observation requires HTML content_type")
+    return analyze(
+        text, content_type=content_type, provenance=provenance,
+        browser_observer=browser_observer if browser_requested else None,
+        tokenizer=tokenizer, tokenizer_name=tokenizer_name,
+    )
