@@ -28,7 +28,7 @@ def extract_document(data, *, filename='evidence.bin', timeout=20):
             resource.setrlimit(resource.RLIMIT_AS,(768*1024*1024,768*1024*1024))
             resource.setrlimit(resource.RLIMIT_FSIZE,(MAX_REPORT_BYTES,MAX_REPORT_BYTES))
         cp=subprocess.run(cmd,stdin=subprocess.DEVNULL,capture_output=True,timeout=timeout,preexec_fn=limits,env={'PATH':'/usr/bin:/bin','LANG':'C.UTF-8'})
-        if cp.returncode: raise RuntimeError('isolated extraction failed: '+cp.stderr.decode(errors='replace')[-500:])
+        if cp.returncode: raise RuntimeError('isolated extraction failed; inspect local worker diagnostics')
         output=root/'report.json'
         if not output.exists() or output.stat().st_size>MAX_REPORT_BYTES: raise RuntimeError('extractor output limit exceeded')
         report=json.loads(output.read_text(encoding='utf-8'))

@@ -86,8 +86,20 @@ def assess(report, *, context=None, model_observer=None, semantic_observer=None,
                 add(claim['boundary'],claim['materiality'],[], 'trusted-semantic-observer-claim',observer_id=semantic_observer_id,evidence=claim['evidence'],explanation=claim['explanation'])
     if context.get('semantic_observer') is not None:
         raise ValueError('semantic_observer must be supplied as a trusted callable, not serialized evidence')
+    coverage={
+        'raw_bytes':'available' if 'raw_bytes' in report['views'] else 'unavailable',
+        'unicode':'available' if 'unicode' in report['views'] else 'unavailable',
+        'human_projection':'heuristic' if visible is not None else 'unavailable',
+        'normalization':'available' if 'normalized' in report['views'] else 'unavailable',
+        'hidden':'available' if 'hidden' in report['views'] else 'unavailable',
+        'browser':'available' if browser.get('available') else 'unavailable',
+        'model_tokens':'available' if tokenizer is not None else 'unavailable',
+        'model_input':'available' if model_observer is not None and model.get('available') else 'unavailable',
+        'semantic':'advisory' if semantic.get('available') else 'unavailable',
+        'lineage':'supplied' if report['views'].get('lineage') else 'unavailable',
+    }
     strongest=max((e['materiality'] for e in edges),key=lambda x:LEVELS[x],default='none')
-    return {'schema':'renderdiff.assessment.v1','disposition':strongest,'material_divergence':LEVELS[strongest]>=2,'edges':edges,'model_input':model,'semantic':semantic,'context_sha256':digest(context)}
+    return {'schema':'renderdiff.assessment.v1','disposition':strongest,'material_divergence':LEVELS[strongest]>=2,'edges':edges,'model_input':model,'semantic':semantic,'context_sha256':digest(context),'coverage':coverage,'complete':False,'completeness_reason':'No universal semantic or visual completeness guarantee; inspect observer coverage.'}
 
 def attach(report, **kwargs):
     report=dict(report)

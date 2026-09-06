@@ -23,5 +23,5 @@ def observe_html(source, *, timeout=20, executable=None):
         try:cp=subprocess.run(cmd,stdin=subprocess.DEVNULL,capture_output=True,timeout=timeout,preexec_fn=limits,env={'PATH':'/usr/bin:/bin','LANG':'C.UTF-8'})
         except (OSError,subprocess.TimeoutExpired) as exc:return {'available':False,'observer':'playwright-isolated-chromium','reason':type(exc).__name__}
         output=root/'report.json'
-        if cp.returncode or not output.exists() or output.stat().st_size>8_000_000:return {'available':False,'observer':'playwright-isolated-chromium','reason':'worker-failed','exit_code':cp.returncode,'stderr_tail':cp.stderr.decode(errors='replace')[-500:]}
+        if cp.returncode or not output.exists() or output.stat().st_size>8_000_000:return {'available':False,'observer':'playwright-isolated-chromium','reason':'worker-failed','exit_code':cp.returncode}
         return json.loads(output.read_text(encoding='utf-8'))

@@ -1,0 +1,20 @@
+name: RenderDiff Assurance
+description: Run the installed RenderDiff CLI on a supplied evidence file.
+inputs:
+  file:
+    description: Evidence path
+    required: true
+  output:
+    description: SARIF output path
+    required: false
+    default: renderdiff.sarif
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RD_FILE: ${{ inputs.file }}
+        RD_OUTPUT: ${{ inputs.output }}
+      run: |
+        python -m pip install "$GITHUB_ACTION_PATH"
+        renderdiff --file "$RD_FILE" --format sarif --output "$RD_OUTPUT" --fail-on-material

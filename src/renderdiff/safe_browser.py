@@ -41,7 +41,7 @@ def bubblewrap_chromium(source, *, timeout=12, executable=None):
             return {'available':False,'observer':'isolated-chromium','reason':type(exc).__name__}
         match=_MARKER.search(cp.stdout)
         if not match:
-            return {'available':False,'observer':'isolated-chromium','reason':'probe-not-observed','exit_code':cp.returncode,'stderr_tail':cp.stderr[-1000:]}
+            return {'available':False,'observer':'isolated-chromium','reason':'probe-not-observed','exit_code':cp.returncode}
         try: text=base64.b64decode(html.unescape(match.group(1)),validate=True).decode()
         except (ValueError,UnicodeError): return {'available':False,'observer':'isolated-chromium','reason':'probe-decode-failed'}
         return {'available':True,'observer':'isolated-chromium','text':text,'exit_code':cp.returncode,'network':'disabled','filesystem':'temporary-sandbox'}

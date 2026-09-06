@@ -13,7 +13,7 @@ from .exports import html_report, sarif_report
 
 MAX_PUBLIC_CHARS=64_000
 MAX_REPORT_BYTES=8_000_000
-app=FastAPI(title='RenderDiff',version='0.5.0',docs_url=None,redoc_url=None)
+app=FastAPI(title='RenderDiff',version='0.5.0b1',docs_url=None,redoc_url=None)
 _pool=ThreadPoolExecutor(max_workers=2)
 
 @app.middleware('http')
@@ -36,10 +36,13 @@ def response(report,fmt):
     if fmt=='json': return JSONResponse(report)
     if fmt=='html': return HTMLResponse(html_report(report),headers={'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'",'X-Content-Type-Options':'nosniff'})
     if fmt=='sarif': return JSONResponse(sarif_report(report))
+    if fmt=='pdf':
+        from .pdf_report import pdf_report
+        return Response(pdf_report(report),media_type='application/pdf',headers={'Content-Disposition':'attachment; filename=renderdiff-report.pdf','X-Content-Type-Options':'nosniff'})
     raise HTTPException(400,'unsupported report format')
 
 @app.get('/health')
-def health(): return {'status':'ok','version':'0.5.0'}
+def health(): return {'status':'ok','version':'0.5.0b1'}
 
 @app.post('/v1/analyze')
 async def analyze_endpoint(request:Request):
@@ -79,5 +82,5 @@ async def export_endpoint(format:str,request:Request):
     from .receipt import verify
     report=await request.json()
     if not verify(report): raise HTTPException(400,'report receipt integrity failed')
-    if format not in {'html','sarif'}: raise HTTPException(400,'unsupported format')
+    if format not in {'html','sarif','pdf'}: raise HTTPException(400,'unsupported format')
     return response(report,format)
