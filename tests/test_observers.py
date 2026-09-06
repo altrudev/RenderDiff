@@ -81,6 +81,15 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(edge["materiality"],"potentially-material")
         self.assertIn("confusable-homoglyph",edge["evidence_categories"])
 
+    def test_radial_hidden_tag_payload_is_material(self):
+        hidden="".join(chr(0xE0000 + ord(c)) for c in " HIDDEN PAYLOAD")
+        r=analyze("Invoice attached" + hidden)
+        edge=next(x for x in r["views"]["radial_assessment"]["edges"] if x["boundary"]=="hidden-tag")
+        self.assertEqual(edge["relation"],"divergence")
+        self.assertEqual(edge["materiality"],"material")
+        self.assertIn("ascii-smuggling",edge["evidence_categories"])
+        self.assertTrue(r["summary"]["radial_material_divergence"])
+
     def test_radial_standard_flag_tag_stays_context_dependent(self):
         def tags(value):
             return "".join(chr(0xE0000 + ord(c)) for c in value) + chr(0xE007F)

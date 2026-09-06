@@ -44,6 +44,20 @@ RenderDiff v0.3.0 adds:
 
 The browser observer is intentionally not automatic. Active HTML is executed only when the host enables that observer, and high-assurance deployments should run Chromium inside their own OS/container sandbox.
 
+## v0.4 radial materiality
+
+RenderDiff v0.4 adds an evidence-backed representation-boundary layer above raw observer mismatch. Pairwise differences are now localized and then classified by the boundary they cross:
+
+- `visibility`: machine source versus human-visible projection
+- `rendering`: deterministic HTML projection versus browser `innerText`
+- `hidden-tag`: machine source versus Unicode-Tag-stripped text
+- `normalization`: machine source versus NFKC-normalized text
+- `identity`: machine source versus UTS #39 confusable skeleton
+
+A mismatch is **not** promoted merely because two strings differ. The radial assessment links a divergent observer edge to detector findings relevant to that boundary and reports one of `none`, `context-dependent`, `potentially-material`, or `material`. The report includes the exact supporting finding IDs and localized delta evidence.
+
+This is a public, deterministic assurance layer. It does not expose proprietary DDC scoring, routing, policy, or radial-frequency internals.
+
 ## Install locally
 
 ```bash
