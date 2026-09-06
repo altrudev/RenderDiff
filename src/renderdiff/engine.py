@@ -3,11 +3,13 @@ import hashlib, json, re, unicodedata
 from typing import Callable
 from .model import Finding
 from .unicode_rules import (
-    BIDI_CLASSES, CONFUSABLES, confusable_skeleton, cp_name, is_invisible, is_tag, is_variation
+    BIDI_CLASSES, BIDI_DIRECTION_MARKS, BIDI_STRONG_CONTROLS, CONFUSABLES,
+    STANDARD_SUBDIVISION_TAGS, bidi_control_strength, confusable_skeleton,
+    cp_name, is_bidi_control, is_invisible, is_tag, is_variation, script_families,
 )
 from .htmlview import inspect_html
 
-ENGINE_VERSION = "0.1.0"
+ENGINE_VERSION = "0.2.0"
 SCHEMA_VERSION = "renderdiff.assurance.v1"
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
@@ -16,24 +18,30 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _canonical_hash(obj: dict) -> str:
+    canonical = json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",",":"))
+    return _sha256(canonical.encode("utf-8"))
+
+
 def _decode_tags(text: str) -> tuple[str, list[dict]]:
     out=[]; runs=[]; buf=[]; start=None
     for i,ch in enumerate(text):
         cp=ord(ch)
         if is_tag(cp):
-            if start is None: start=i
+            if start is None:
+                start=i
             if 0xE0020 <= cp <= 0xE007E:
                 buf.append(chr(cp - 0xE0000))
             elif cp == 0xE007F:
-                if buf:
-                    runs.append({"start":start,"end":i+1,"decoded":"".join(buf)})
+                runs.append({"start":start,"end":i+1,"decoded":"".join(buf),"terminated":True})
                 buf=[]; start=None
             continue
-        if buf:
-            runs.append({"start":start,"end":i,"decoded":"".join(buf)})
+        if start is not None:
+            runs.append({"start":start,"end":i,"decoded":"".join(buf),"terminated":False})
             buf=[]; start=None
         out.append(ch)
-    if buf: runs.append({"start":start,"end":len(text),"decoded":"".join(buf)})
+    if start is not None:
+        runs.append({"start":start,"end":len(text),"decoded":"".join(buf),"terminated":False})
     return "".join(out), runs
 
 
@@ -46,14 +54,59 @@ def _severity(findings: list[Finding]) -> str:
     return max((f.severity for f in findings), key=lambda x: levels[x], default="info")
 
 
-def _is_emoji_context(text: str, i: int) -> bool:
-    # Practical suppression for ZWJ/variation selectors used in emoji sequences.
-    neighbors = text[max(0,i-2):i] + text[i+1:i+3]
-    return any(unicodedata.category(ch) == "So" or ord(ch) >= 0x1F000 for ch in neighbors)
+def _is_emoji_like(ch: str) -> bool:
+    cp=ord(ch)
+    return unicodedata.category(ch) == "So" or 0x1F000 <= cp <= 0x1FAFF
 
-def _is_subdivision_flag_run(text: str, start: int, end: int) -> bool:
-    # Unicode subdivision flags are BLACK FLAG + tag letters/digits + CANCEL TAG.
-    return start > 0 and ord(text[start-1]) == 0x1F3F4 and end <= len(text) and ord(text[end-1]) == 0xE007F
+
+def _is_emoji_zwj_context(text: str, i: int) -> bool:
+    # Suppress only when ZWJ has emoji-like context on both sides (ignoring VS selectors).
+    left=i-1
+    while left >= 0 and is_variation(ord(text[left])):
+        left -= 1
+    right=i+1
+    while right < len(text) and is_variation(ord(text[right])):
+        right += 1
+    return left >= 0 and right < len(text) and _is_emoji_like(text[left]) and _is_emoji_like(text[right])
+
+
+def _is_standard_subdivision_flag_run(text: str, run: dict) -> bool:
+    start=run["start"]; end=run["end"]
+    return (
+        start > 0
+        and ord(text[start-1]) == 0x1F3F4
+        and bool(run.get("terminated"))
+        and end <= len(text)
+        and ord(text[end-1]) == 0xE007F
+        and run.get("decoded", "") in STANDARD_SUBDIVISION_TAGS
+    )
+
+
+def _hidden_carrier_finding(text: str, codepoints: list[dict]) -> Finding | None:
+    carriers=[]
+    for rec in codepoints:
+        cp=int(rec["codepoint"][2:],16)
+        if cp in {0x200B,0x200C,0x200D,0x2060,0xFEFF,0x034F} or is_variation(cp):
+            carriers.append({
+                "index":rec["index"], "codepoint":rec["codepoint"],
+                "name":rec["name"], "category":rec["category"],
+            })
+    if len(carriers) < 4:
+        return None
+    density = len(carriers) / max(1, len(text))
+    repeated = len({x["codepoint"] for x in carriers}) <= max(2, len(carriers)//2)
+    if density < 0.05 and not repeated:
+        return None
+    return Finding(
+        id="hidden-carrier-pattern", category="watermark-like-hidden-text", severity="low",
+        materiality="context-dependent", start=None, end=None,
+        evidence={"carrier_count":len(carriers),"char_length":len(text),"density":round(density,6),"carriers":carriers},
+        explanation=(
+            "Multiple non-rendering carrier characters form a hidden representation pattern. "
+            "This can be used by watermarking, steganography, formatting, or adversarial payloads; origin is not inferred."
+        ),
+    )
+
 
 def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[[str], list[int] | list[str]] | None = None,
             provenance: dict | None = None, extra_confusables: dict[str,str] | None = None) -> dict:
@@ -68,36 +121,55 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
         rec={"index":i,"char":ch,"codepoint":f"U+{cp:04X}","name":cp_name(ch),"category":cat,"bidi":bidi}
         codepoints.append(rec)
         if is_invisible(ch):
-            emoji_context = _is_emoji_context(text, i)
-            if is_variation(cp) or (cp in {0x200C,0x200D} and emoji_context):
+            emoji_context = cp == 0x200D and _is_emoji_zwj_context(text, i)
+            if is_variation(cp) or emoji_context:
                 sev, mat = "info", "context-dependent"
             elif is_tag(cp):
-                sev, mat = "medium", "context-dependent"  # run-level decoder decides smuggling materiality
-            elif bidi in BIDI_CLASSES:
+                sev, mat = "medium", "context-dependent"  # run-level decoder decides materiality
+            elif cp in BIDI_STRONG_CONTROLS:
                 sev, mat = "high", "material"
+            elif cp in BIDI_DIRECTION_MARKS:
+                sev, mat = "medium", "potentially-material"
             else:
                 sev, mat = "medium", "potentially-material"
             findings.append(Finding(
                 id=f"unicode-invisible:{i}", category="invisible-unicode", severity=sev,
                 materiality=mat, start=i,end=i+1,
-                evidence={**rec, "emoji_context": emoji_context}, explanation="Character may be invisible or non-printing in normal human rendering."
+                evidence={**rec, "emoji_context": emoji_context},
+                explanation="Character may be invisible or non-printing in normal human rendering."
             ))
-        if bidi in BIDI_CLASSES:
+        if is_bidi_control(ch):
+            strength=bidi_control_strength(ch)
             findings.append(Finding(
-                id=f"bidi-control:{i}", category="bidi-reordering", severity="high", materiality="material",
-                start=i,end=i+1,evidence=rec,
-                explanation="Explicit bidirectional control can reorder displayed text relative to logical storage order."
+                id=f"bidi-control:{i}", category="bidi-reordering",
+                severity="high" if strength == "strong" else "medium",
+                materiality="material" if strength == "strong" else "potentially-material",
+                start=i,end=i+1,evidence={**rec,"control_strength":strength},
+                explanation=(
+                    "Explicit bidirectional control can reorder displayed text relative to logical storage order."
+                    if strength == "strong" else
+                    "Bidirectional direction mark can change surrounding display direction without visible glyph evidence."
+                )
             ))
+
+    carrier_finding=_hidden_carrier_finding(text, codepoints)
+    if carrier_finding:
+        findings.append(carrier_finding)
 
     tag_stripped, tag_runs = _decode_tags(text)
     for n,run in enumerate(tag_runs):
-        legitimate_flag = _is_subdivision_flag_run(text, run["start"], run["end"])
+        legitimate_flag = _is_standard_subdivision_flag_run(text, run)
         findings.append(Finding(
             id=f"unicode-tags:{n}", category="unicode-tag-sequence" if legitimate_flag else "ascii-smuggling",
-            severity="info" if legitimate_flag else "high", materiality="context-dependent" if legitimate_flag else "material",
-            start=run["start"], end=run["end"], evidence={**run, "subdivision_flag_context": legitimate_flag},
-            explanation=("Unicode Tag sequence appears attached to a subdivision-flag emoji; preserve as legitimate unless policy says otherwise."
-                         if legitimate_flag else "Unicode tag characters encode an ASCII-like hidden payload not normally visible to a reader.")
+            severity="info" if legitimate_flag else "high",
+            materiality="context-dependent" if legitimate_flag else "material",
+            start=run["start"], end=run["end"],
+            evidence={**run, "standard_subdivision_flag": legitimate_flag},
+            explanation=(
+                "Unicode Tag sequence exactly matches a standardized subdivision-flag sequence."
+                if legitimate_flag else
+                "Unicode tag characters encode a hidden ASCII-like payload or malformed tag run not normally visible to a reader."
+            )
         ))
 
     nfc=unicodedata.normalize("NFC", text)
@@ -121,14 +193,25 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
     for i,ch in enumerate(text):
         if ch in mapping and mapping[ch] != ch:
             confusable_positions.append({"index":i,"char":ch,"codepoint":f"U+{ord(ch):04X}","maps_to":mapping[ch],"name":cp_name(ch)})
+    scripts=script_families(text)
+    spoof_scripts=sorted(set(scripts) & {"Latin","Cyrillic","Greek"})
+    mixed_spoof_scripts=len(spoof_scripts) > 1
     if confusable_positions:
-        # Avoid overclaiming: presence alone is not always malicious.
-        mixed = len({unicodedata.name(ch, "").split(" ",1)[0] for ch in text if ch.isalpha() and unicodedata.name(ch, "")}) > 1
         findings.append(Finding(
-            id="confusable-skeleton", category="confusable-homoglyph", severity="high" if mixed else "low",
-            materiality="potentially-material" if mixed else "context-dependent", start=None,end=None,
-            evidence={"skeleton":skeleton,"positions":confusable_positions,"mixed_script_heuristic":mixed},
-            explanation="Characters have visually confusable alternatives; mixed scripts increase spoofing relevance."
+            id="confusable-skeleton", category="confusable-homoglyph",
+            severity="high" if mixed_spoof_scripts else "low",
+            materiality="potentially-material" if mixed_spoof_scripts else "context-dependent", start=None,end=None,
+            evidence={
+                "skeleton":skeleton,"positions":confusable_positions,
+                "script_families":scripts,"spoof_script_families":spoof_scripts,
+                "mixed_spoof_scripts":mixed_spoof_scripts,
+                "mapping_scope":"compact-mvp-plus-caller-overrides",
+            },
+            explanation=(
+                "Visually confusable mappings occur across spoof-relevant script families."
+                if mixed_spoof_scripts else
+                "Characters have visually confusable alternatives; context is required before treating this as spoofing."
+            )
         ))
 
     html_view=None
@@ -138,7 +221,7 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
             findings.append(Finding(
                 id="html-hidden-content", category="hidden-html-css", severity="high", materiality="material",
                 start=None,end=None,evidence={"fragments":html_view["hidden_fragments"], "hidden_attributes": html_view.get("hidden_attributes", [])},
-                explanation="HTML contains text suppressed by markup or inline CSS while remaining present in the source representation."
+                explanation="HTML contains text suppressed by markup or CSS while remaining present in the source representation."
             ))
         if html_view["comments"]:
             findings.append(Finding(
@@ -163,13 +246,18 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
     }
     if tokenizer is not None:
         toks=tokenizer(text)
+        if not isinstance(toks, list):
+            raise TypeError("tokenizer must return a list")
         model_view["tokenizer"]={"token_count":len(toks),"tokens":toks}
 
     material = [f for f in findings if f.materiality in {"material","potentially-material"}]
     semantic={
         "human_visible_text": visible,
         "machine_received_text": text,
-        "decoded_hidden_text": [x["decoded"] for x in tag_runs] + ([x["text"] for x in html_view["hidden_fragments"]] + [x["text"] for x in html_view.get("hidden_attributes", [])] if html_view else []),
+        "decoded_hidden_text": [x["decoded"] for x in tag_runs] + (
+            [x["text"] for x in html_view["hidden_fragments"]] + [x["text"] for x in html_view.get("hidden_attributes", [])]
+            if html_view else []
+        ),
         "material_divergence": bool(material),
         "basis": sorted({f.category for f in material}),
     }
@@ -187,7 +275,7 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
             "hidden":hidden_projection,
             "lineage":provenance or {},
             "tag_stripped":{"text":tag_stripped,"sha256":_sha256(tag_stripped.encode())},
-            "confusable":{"skeleton":skeleton,"sha256":_sha256(skeleton.encode())},
+            "confusable":{"skeleton":skeleton,"sha256":_sha256(skeleton.encode()),"script_families":scripts},
         },
         "summary":{
             "finding_count":len(findings),"severity":_severity(findings),
@@ -195,21 +283,29 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
         },
         "findings":[f.to_dict() for f in sorted(findings, key=lambda x:x.id)],
     }
-    canonical=json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",",":"))
-    result["receipt"]={"canonical_json_sha256":_sha256(canonical.encode("utf-8"))}
+    result["receipt"]={"canonical_json_sha256":_canonical_hash(result)}
     return result
 
 
 def analyze_bytes(data: bytes, **kwargs) -> dict:
+    if not isinstance(data, (bytes, bytearray)):
+        raise TypeError("data must be bytes")
+    data=bytes(data)
     try:
         text=data.decode("utf-8")
     except UnicodeDecodeError as e:
-        return {
+        finding=Finding(
+            "invalid-utf8","invalid-utf8","high","material",e.start,e.end,
+            {"reason":str(e),"offending_hex":data[e.start:e.end].hex()},
+            "Input bytes are not valid UTF-8 and therefore can be interpreted differently across consumers."
+        ).to_dict()
+        result={
             "schema":SCHEMA_VERSION,"engine_version":ENGINE_VERSION,
-            "input":{"byte_length":len(data),"sha256":_sha256(data)},
+            "input":{"content_type":kwargs.get("content_type","application/octet-stream"),"byte_length":len(data),"sha256":_sha256(data)},
+            "views":{"raw_bytes":{"encoding":"unknown/invalid-utf8","hex":data.hex()}},
             "summary":{"finding_count":1,"severity":"high","material_divergence":True,"categories":["invalid-utf8"]},
-            "findings":[Finding("invalid-utf8","invalid-utf8","high","material",e.start,e.end,
-                {"reason":str(e),"offending_hex":data[e.start:e.end].hex()},
-                "Input bytes are not valid UTF-8 and therefore can be interpreted differently across consumers.").to_dict()],
+            "findings":[finding],
         }
+        result["receipt"]={"canonical_json_sha256":_canonical_hash(result)}
+        return result
     return analyze(text, **kwargs)
