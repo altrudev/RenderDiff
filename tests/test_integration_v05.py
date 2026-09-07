@@ -1,6 +1,5 @@
 import io,json,os,sys,tempfile,unittest,zipfile,hashlib
 from pathlib import Path
-sys.path.insert(0,'src')
 from renderdiff import analyze
 from renderdiff.assurance import attach
 from renderdiff.bundle import create_bundle,verify_bundle

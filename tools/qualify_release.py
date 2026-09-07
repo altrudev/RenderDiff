@@ -42,9 +42,12 @@ def main():
     gates.append(gate('physical',security.returncode==0 and 'test_worker_cannot_access_host_or_network' in security.stderr and 'skipped=' not in security.stderr,{'namespace_test':'test_worker_cannot_access_host_or_network','test_output_sha256':sha(security.stderr.encode())}))
     suite=run(sys.executable,'-m','unittest','discover','-s','tests','-q',timeout=120)
     count=re.search(r'Ran (\d+) tests',suite.stderr)
-    gates.append(gate('verification',suite.returncode==0 and count is not None and int(count.group(1))>=69,{'exit_code':suite.returncode,'test_count':int(count.group(1)) if count else None,'output_sha256':sha(suite.stderr.encode())}))
+    gates.append(gate('verification',suite.returncode==0 and count is not None and int(count.group(1))>=86,{'exit_code':suite.returncode,'test_count':int(count.group(1)) if count else None,'output_sha256':sha(suite.stderr.encode())}))
     matrix=read_json('release-matrix.json')
-    gates.append(gate('python-matrix',matrix['status']=='PASS' and len(matrix['results'])==5 and all(x['state']=='PASS' and 'Ran 69 tests' in x.get('summary','') for x in matrix['results']),{'versions':[x['python'] for x in matrix['results']],'evidence_sha256':sha(canonical(matrix))}))
+    gates.append(gate('python-matrix',matrix.get('schema')=='renderdiff.python-matrix.v2' and matrix['status']=='PASS' and len(matrix['results'])==5 and all(x['state']=='PASS' and x.get('test_count',0)>=86 for x in matrix['results']),{'versions':[x['python'] for x in matrix['results']],'evidence_sha256':sha(canonical(matrix))}))
+    wheels=sorted((ROOT/'dist').glob('renderdiff-*.whl'))
+    wheel_hash=sha(wheels[0].read_bytes()) if len(wheels)==1 else None
+    gates.append(gate('package',wheel_hash is not None and wheel_hash==matrix.get('wheel_sha256'),{'wheel_sha256':wheel_hash}))
     audit=read_json('dependency-audit.json')
     vulnerable=[{'name':x['name'],'version':x['version'],'ids':[v['id'] for v in x['vulns']]} for x in audit.get('dependencies',[]) if x.get('vulns')]
     gates.append(gate('dependencies',not vulnerable and len(audit.get('dependencies',[]))>0,{'packages':len(audit.get('dependencies',[])),'vulnerabilities':vulnerable,'evidence_sha256':sha(canonical(audit)),'requirements_sha256':sha((ART/'release-requirements.txt').read_bytes())}))

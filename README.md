@@ -8,7 +8,7 @@ RenderDiff is an open-source, evidence-first tool in the DDC/DDCAL ecosystem. It
 
 ## Status
 
-The v0.6.0 beta candidate adds document ingestion, isolated browser observation, model/semantic observer interfaces, a local web service, portable evidence bundles, signed receipt support, report exports and CI integration. It is undergoing review and is **not a production-certified v1.0 release**. The existing v0.4 engine and public API remain available. No proprietary DDC scoring, policy, authority routing or radial-frequency internals are published.
+The v0.6.1 beta re-audit candidate adds document ingestion, isolated browser observation, model/semantic observer interfaces, a local web service, portable evidence bundles, signed receipt support, report exports and CI integration. It is undergoing review and is **not a production-certified v1.0 release**. The existing v0.4 engine and public API remain available. No proprietary DDC scoring, policy, authority routing or radial-frequency internals are published.
 
 ### What is implemented
 
@@ -24,7 +24,7 @@ The v0.6.0 beta candidate adds document ingestion, isolated browser observation,
 
 ## Install
 
-Python 3.10–3.14 are supported by the current local release matrix. The full 69-test suite has passed on each interpreter after correcting the isolated-runtime mapping. See `docs/RELEASE_GATES.md` for the exact scope and remaining production gates.
+Python 3.10–3.14 are the declared supported versions; the current release matrix must be reproduced for each candidate. The full 86-test suite has passed on each interpreter after correcting the isolated-runtime mapping. See `docs/RELEASE_GATES.md` for the exact scope and remaining production gates.
 
 ```bash
 python -m venv .venv
@@ -126,6 +126,14 @@ Apache-2.0. RenderDiff is a public assurance component; private DDC implementati
 
 ## Release security and deployment
 
-See `docs/SECURITY.md`, `docs/DEPLOYMENT.md`, and `docs/RELEASE_GATES.md`. The v0.6 beta includes authenticated local API access, bounded concurrency and hardened extraction/runtime isolation. Production multi-user identity, distributed quotas, external security review, configured model-provider validation and complete visual/OCR coverage remain explicit gates rather than implied guarantees.
+See `docs/SECURITY.md`, `docs/DEPLOYMENT.md`, and `docs/RELEASE_GATES.md`. The v0.6.1 beta includes authenticated local API access, bounded concurrency and hardened extraction/runtime isolation. Production multi-user identity, distributed quotas, external security review, configured model-provider validation and complete visual/OCR coverage remain explicit gates rather than implied guarantees.
 
 Run `python tools/release_matrix.py` and `python tools/qualify_release.py` to reproduce the release evidence locally. The qualification returns `PASS-CANDIDATE` only for the verified development scope; production approval is a separate gate.
+
+## Full-evidence resource limits
+
+The v0.6.1 beta full-evidence engine accepts at most 64,000 decoded characters and 256,000 UTF-8 bytes, with an 8 MB canonical report budget and 10,000 findings. The original-document intake limit is 4 MB, but a document whose extracted text exceeds the full-evidence budget is rejected rather than partially certified. This is an explicit bounded mode, not unlimited large-file streaming. Larger evidence requires a separate windowed/streaming assurance workflow with complete coverage accounting.
+
+A clean result means no material divergence was observed by the performed observers. It does not establish that all content is safe, authentic, or semantically equivalent. Model probes describe the exact submitted request and observed response; provider-internal preprocessing is not observable unless separately instrumented. The optional browser observer is isolated and cannot establish perfect visual perception.
+
+The independent re-audit is tracked in `docs/reviews/RENDERDIFF_0.6.1_REAUDIT.md` and the corresponding review PR. Production deployment, independent security review, and owner release approval remain separate gates.

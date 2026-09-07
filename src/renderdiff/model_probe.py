@@ -14,6 +14,8 @@ def openai_compatible_observer(*, endpoint, model, token=None, timeout=30, tempe
         raise ValueError('model endpoint must use HTTPS or loopback HTTP')
     if parsed.username or parsed.password or parsed.fragment:raise ValueError('invalid model endpoint')
     if not isinstance(model,str) or not model:raise ValueError('model ID required')
+    if not isinstance(timeout,(int,float)) or not 0<timeout<=120: raise ValueError('invalid timeout')
+    if parsed.port not in (None,443,80) and parsed.hostname not in {'localhost','127.0.0.1','::1'}: raise ValueError('nonstandard remote model ports require a separate trusted transport')
     def observe(text):
         import httpx
         request={'model':model,'messages':[{'role':'user','content':text}],'temperature':temperature,'stream':False}
@@ -24,7 +26,7 @@ def openai_compatible_observer(*, endpoint, model, token=None, timeout=30, tempe
             response.raise_for_status();data=response.json()
         content=data['choices'][0]['message']['content']
         if not isinstance(content,str) or len(content)>100000:raise ValueError('invalid model response')
-        return {'available':True,'observer':'openai-compatible','text':text,'metadata':{'model_requested':model,'model_returned':data.get('model'),'response_sha256':hashlib.sha256(content.encode()).hexdigest(),'response':content,'usage':data.get('usage'),'request_sha256':hashlib.sha256(json.dumps(request,sort_keys=True,ensure_ascii=False).encode()).hexdigest()}}
+        return {'available':True,'observer':'openai-compatible','text':text,'metadata':{'model_requested':model,'model_returned':data.get('model'),'response_sha256':hashlib.sha256(content.encode()).hexdigest(),'response':content,'usage':data.get('usage'),'request_sha256':hashlib.sha256(json.dumps(request,sort_keys=True,ensure_ascii=False).encode()).hexdigest(),'input_observation':'submitted-request-only; provider-internal-input-unverified'}}
     return observe
 
 def compare_model_behaviour(source,visible,observer,*,observer_id):

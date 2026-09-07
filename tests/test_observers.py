@@ -1,5 +1,4 @@
 import unittest, sys
-sys.path.insert(0,"src")
 from renderdiff import analyze
 from renderdiff.browser import chromium_observe_html, find_chromium
 from renderdiff.divergence import compare_text_views

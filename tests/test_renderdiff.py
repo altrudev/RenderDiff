@@ -1,5 +1,4 @@
 import json, unittest, sys
-sys.path.insert(0, "src")
 from renderdiff import analyze, analyze_request
 from renderdiff.engine import analyze_bytes
 

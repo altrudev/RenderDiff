@@ -26,7 +26,7 @@ def verify_seal(report, seal_data, public_key=None):
     try:
         if seal_data.get('schema')!='renderdiff.seal.v1' or seal_data.get('report_sha256')!=digest(report): return False
     except (TypeError,ValueError): return False
-    if 'signature' not in seal_data: return public_key is None and 'algorithm' not in seal_data
+    if 'signature' not in seal_data: return public_key is None and 'algorithm' not in seal_data and not seal_data.get('key_id')
     if public_key is None or seal_data.get('algorithm')!='Ed25519' or not seal_data.get('key_id'): return False
     signed={k:v for k,v in seal_data.items() if k!='signature'}
     try:

@@ -1,5 +1,4 @@
 import hashlib, sys, unittest
-sys.path.insert(0, "src")
 from renderdiff.uts39 import parse_confusables, uts39_skeleton
 
 

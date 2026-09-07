@@ -5,6 +5,7 @@ from pathlib import Path
 from .runtime import isolated_python
 from .ingest import MAX_BYTES
 from .receipt import verify
+from .limits import EvidenceLimitError
 
 MAX_REPORT_BYTES=8_000_000
 
@@ -31,7 +32,15 @@ def extract_document(data, *, filename='evidence.bin', timeout=20):
             resource.setrlimit(resource.RLIMIT_AS,(768*1024*1024,768*1024*1024))
             resource.setrlimit(resource.RLIMIT_FSIZE,(MAX_REPORT_BYTES,MAX_REPORT_BYTES))
         cp=subprocess.run(cmd,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=timeout,preexec_fn=limits,env={'PATH':'/usr/bin:/bin','LANG':'C.UTF-8',**runtime_env})
-        if cp.returncode: raise RuntimeError('isolated extraction failed; inspect local worker diagnostics')
+        if cp.returncode:
+            error=root/'error.json'
+            if error.exists() and error.stat().st_size<=4096:
+                detail=json.loads(error.read_text(encoding='utf-8'))
+                if detail.get('code')=='resource-limit':
+                    raise EvidenceLimitError(detail.get('detail','extraction limit exceeded'))
+                if detail.get('code')=='invalid-evidence':
+                    raise ValueError('invalid or unsupported document evidence')
+            raise RuntimeError('isolated extraction failed')
         output=root/'report.json'
         if not output.exists() or output.stat().st_size>MAX_REPORT_BYTES: raise RuntimeError('extractor output limit exceeded')
         report=json.loads(output.read_text(encoding='utf-8'))

@@ -12,8 +12,9 @@ from .uts39 import default_confusables, uts39_skeleton, UTS39_VERSION, UTS39_CON
 from .divergence import compare_text_views
 from .materiality import assess_representation_divergence
 from .tokenizers import observe_tokenizer
+from .limits import check_text_budget, bounded_canonical, MAX_FINDINGS
 
-ENGINE_VERSION = "0.5.0"
+ENGINE_VERSION = "0.6.1b1"
 SCHEMA_VERSION = "renderdiff.assurance.v1"
 TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
@@ -23,8 +24,7 @@ def _sha256(data: bytes) -> str:
 
 
 def _canonical_hash(obj: dict) -> str:
-    canonical = json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",",":"))
-    return _sha256(canonical.encode("utf-8"))
+    return _sha256(bounded_canonical(obj))
 
 
 def _decode_tags(text: str) -> tuple[str, list[dict]]:
@@ -117,6 +117,7 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
             browser_observer: Callable[[str], dict] | None = None) -> dict:
     if not isinstance(text, str):
         raise TypeError("text must be str")
+    check_text_budget(text)
     raw=text.encode("utf-8")
     findings: list[Finding]=[]
 
@@ -157,6 +158,9 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
                 )
             ))
 
+    if len(findings)>MAX_FINDINGS:
+        from .limits import EvidenceLimitError
+        raise EvidenceLimitError("finding budget exceeded; no clean verdict issued")
     carrier_finding=_hidden_carrier_finding(text, codepoints)
     if carrier_finding:
         findings.append(carrier_finding)
@@ -266,6 +270,9 @@ def analyze(text: str, *, content_type: str = "text/plain", tokenizer: Callable[
         "html_comments": html_view["comments"] if html_view else [],
     }
 
+    if len(findings)>MAX_FINDINGS:
+        from .limits import EvidenceLimitError
+        raise EvidenceLimitError("finding budget exceeded; no clean verdict issued")
     model_view={
         "exact_text_sha256": _sha256(raw),
         "lexical_units": TOKEN_RE.findall(text),
@@ -338,6 +345,9 @@ def analyze_bytes(data: bytes, **kwargs) -> dict:
     if not isinstance(data, (bytes, bytearray)):
         raise TypeError("data must be bytes")
     data=bytes(data)
+    from .limits import MAX_ANALYSIS_BYTES, EvidenceLimitError
+    if len(data)>MAX_ANALYSIS_BYTES:
+        raise EvidenceLimitError("full-evidence analysis limit exceeded; no clean verdict issued")
     try:
         text=data.decode("utf-8")
     except UnicodeDecodeError as e:
@@ -353,6 +363,7 @@ def analyze_bytes(data: bytes, **kwargs) -> dict:
             "summary":{"finding_count":1,"severity":"high","material_divergence":True,"categories":["invalid-utf8"]},
             "findings":[finding],
         }
+        result["views"]["lineage"]=kwargs.get('provenance') or {}
         result["receipt"]={"canonical_json_sha256":_canonical_hash(result)}
         return result
     return analyze(text, **kwargs)

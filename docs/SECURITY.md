@@ -17,3 +17,9 @@ Report vulnerabilities privately to the repository maintainer using GitHub's pri
 ### Supported environments
 
 The current integration matrix covers CPython 3.10–3.14 on Linux. Active browser and document isolation requires Linux namespace support. Other operating systems may use the deterministic text library but must not claim the same isolated-observer coverage. Browser memory/PID ceilings must be enforced by the production service manager or container runtime; Python address-space limits are not a substitute for Chromium cgroups.
+
+### Re-audit resource and evidence semantics
+
+Full-evidence analysis is bounded to 64,000 characters / 256,000 UTF-8 bytes, 10,000 findings and an 8 MB report. Original document intake is capped at 4 MB. An exceeded limit is a failed analysis, not a partial clean verdict. The local API retains capacity while a cancelled worker finishes; a request timeout does not terminate a running Python thread. Production cgroup ceilings and worker-process termination are therefore still required before public multi-user deployment.
+
+The legacy browser DOM-marker observer has been replaced by the isolated Playwright observer. Model-provider responses cannot establish the provider's internal input representation. A self-computed report hash establishes consistency, not authorship; imported reports must not be treated as trusted attestations without an independently verified signature and trusted key.

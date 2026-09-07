@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib, json, re
 from .divergence import compare_text_views
+from .limits import bounded_canonical
 
 LEVELS = {'none':0, 'context-dependent':1, 'potentially-material':2, 'material':3}
 # Context is explicit. A text fragment never grants its own authority.
@@ -25,7 +26,7 @@ def assess(report, *, context=None, model_observer=None, semantic_observer=None,
     if len(canonical(context))>65536: raise ValueError('context exceeds limit')
     source = report['views'].get('semantic', {}).get('machine_received_text')
     if source is None:
-        return {'schema':'renderdiff.assessment.v1','disposition':'unavailable','reason':'no-decoded-text','edges':[]}
+        return {'schema':'renderdiff.assessment.v1','disposition':'unavailable','reason':'no-decoded-text','material_divergence':report.get('summary',{}).get('material_divergence',False),'edges':[],'model_input':{'available':False,'reason':'no-decoded-text'},'semantic':{'available':False,'reason':'no-decoded-text'},'context_sha256':digest(context),'coverage':{'raw_bytes':'available','unicode':'unavailable','human_projection':'unavailable','normalization':'unavailable','hidden':'unavailable','browser':'unavailable','model_tokens':'unavailable','model_input':'unavailable','semantic':'unavailable','lineage':'supplied' if report['views'].get('lineage') else 'unavailable'},'complete':False,'completeness_reason':'The source cannot be decoded as UTF-8; no clean text verdict is available.'}
     visible = report['views']['human_visible']['text']
     hidden = report['views']['hidden']
     browser=report['views'].get('browser_render',{})
@@ -70,7 +71,7 @@ def assess(report, *, context=None, model_observer=None, semantic_observer=None,
             for edge in compare_text_views({'source':source,'model_input':received}):
                 if not edge['equal']:
                     add('model-input','potentially-material',[], 'exact-model-input-differs',delta=edge['delta'])
-            model={'available':True,'observer':observed.get('observer','custom'), 'text_sha256':hashlib.sha256(received.encode()).hexdigest(), 'char_length':len(received), 'metadata':observed.get('metadata',{})}
+            model={'available':True,'observer':observed.get('observer','custom'), 'text_sha256':hashlib.sha256(received.encode()).hexdigest(), 'char_length':len(received), 'metadata':observed.get('metadata',{}),'input_observation':observed.get('input_observation',observed.get('metadata',{}).get('input_observation','observer-declared'))}
         else:
             model={'available':False,'reason':observed.get('reason','observer-unavailable')}
     # Browser metadata is evidence, not an endorsement of page content.
@@ -109,5 +110,6 @@ def attach(report, **kwargs):
     report['views']['assurance']=assess(report,**kwargs)
     report['summary']=dict(report['summary'])
     report['summary']['assurance_disposition']=report['views']['assurance']['disposition']
-    report['receipt']={'canonical_json_sha256':digest({k:v for k,v in report.items() if k!='receipt'})}
+    report['summary']['material_divergence']=report['summary'].get('material_divergence',False) or report['views']['assurance']['material_divergence']
+    report['receipt']={'canonical_json_sha256':hashlib.sha256(bounded_canonical({k:v for k,v in report.items() if k!='receipt'})).hexdigest()}
     return report
