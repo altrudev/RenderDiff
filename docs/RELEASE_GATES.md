@@ -32,3 +32,5 @@ The security audit uses Bandit and Ruff syntax/undefined-code checks. Bandit B10
 ## Release authority
 
 The local qualification can establish `PASS-CANDIDATE` for the tested source snapshot only. It does not approve publication, merge, production deployment, or independent certification. Production approval requires the owner to review the final deployment configuration and the independent review evidence.
+
+The current reproducible commands are `python tools/release_matrix.py` and `python tools/qualify_release.py`. Qualification requires a clean source tree, a matching installed package version, and the current matrix/audit evidence. It retains a PENDING production gate even when all development gates pass.

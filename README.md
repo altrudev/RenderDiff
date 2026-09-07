@@ -127,3 +127,5 @@ Apache-2.0. RenderDiff is a public assurance component; private DDC implementati
 ## Release security and deployment
 
 See `docs/SECURITY.md`, `docs/DEPLOYMENT.md`, and `docs/RELEASE_GATES.md`. The v0.6 beta includes authenticated local API access, bounded concurrency and hardened extraction/runtime isolation. Production multi-user identity, distributed quotas, external security review, configured model-provider validation and complete visual/OCR coverage remain explicit gates rather than implied guarantees.
+
+Run `python tools/release_matrix.py` and `python tools/qualify_release.py` to reproduce the release evidence locally. The qualification returns `PASS-CANDIDATE` only for the verified development scope; production approval is a separate gate.
