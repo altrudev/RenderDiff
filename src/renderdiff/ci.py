@@ -8,6 +8,7 @@ def main():
     from renderdiff.ingest import acquire_file
     from renderdiff.exports import sarif_report
     import json
+    if not a.paths: p.error('at least one evidence path is required')
     reports=[];fail=False
     for name in a.paths:
         path=Path(name)

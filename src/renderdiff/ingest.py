@@ -25,7 +25,7 @@ def acquire_bytes(data, *, filename='evidence.txt', content_type=None, provenanc
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             members=z.infolist()
             if len(members)>1000 or sum(x.file_size for x in members)>16_000_000: raise ValueError('document expansion limit exceeded')
-            from xml.etree import ElementTree as ET
+            from defusedxml.ElementTree import fromstring
             texts=[]
             for member in members:
                 if member.compress_size and member.file_size/member.compress_size>1000: raise ValueError('document compression ratio limit exceeded')
@@ -33,7 +33,7 @@ def acquire_bytes(data, *, filename='evidence.txt', content_type=None, provenanc
                 if not (name.startswith(('word/','xl/','ppt/')) and name.endswith('.xml')): continue
                 if member.file_size>4_000_000: raise ValueError('XML member limit exceeded')
                 if not any(x in name for x in ('document.xml','header','footer','sharedStrings.xml','worksheets/','slides/','notesSlides/','comments')): continue
-                root=ET.fromstring(z.read(member))
+                root=fromstring(z.read(member))
                 texts.extend(x.text for x in root.iter() if x.tag.rsplit('}',1)[-1] in {'t','v'} and x.text)
             text='\n'.join(texts)
         lineage['extractor']='ooxml-xml-text'; lineage['coverage']='selected text-bearing XML; not visual layout'

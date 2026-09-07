@@ -19,9 +19,10 @@ def assess(report, *, context=None, model_observer=None, semantic_observer=None,
     Context may declare an expected identifier, authorized source, or an exact
     machine-input observer. An unknown context is never inferred from suspicious words.
     """
-    context = context or {}
+    if context is None: context = {}
     if not isinstance(context, dict):
         raise TypeError('context must be a dict')
+    if len(canonical(context))>65536: raise ValueError('context exceeds limit')
     source = report['views'].get('semantic', {}).get('machine_received_text')
     if source is None:
         return {'schema':'renderdiff.assessment.v1','disposition':'unavailable','reason':'no-decoded-text','edges':[]}
@@ -63,6 +64,7 @@ def assess(report, *, context=None, model_observer=None, semantic_observer=None,
         if not isinstance(observed,dict):
             raise TypeError('model observer must return an object')
         model=observed
+        if len(canonical(observed))>8_000_000: raise ValueError('model observer output exceeds limit')
         if observed.get('available') and isinstance(observed.get('text'),str):
             received=observed['text']
             for edge in compare_text_views({'source':source,'model_input':received}):

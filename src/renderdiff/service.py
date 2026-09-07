@@ -1,6 +1,7 @@
 """Bounded public API. Deploy behind an authenticated, rate-limited reverse proxy."""
 from __future__ import annotations
-import json, os
+import json, os, hmac, time, threading, secrets
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -13,12 +14,49 @@ from .exports import html_report, sarif_report
 
 MAX_PUBLIC_CHARS=64_000
 MAX_REPORT_BYTES=8_000_000
-app=FastAPI(title='RenderDiff',version='0.5.0b1',docs_url=None,redoc_url=None)
+app=FastAPI(title='RenderDiff',version='0.6.0b1',docs_url=None,redoc_url=None)
 _pool=ThreadPoolExecutor(max_workers=2)
+_slots=threading.BoundedSemaphore(2)
+_rate_lock=threading.Lock()
+_rate_windows={}
+_MAX_RATE_KEYS=10000
+
+def _authorize(request):
+    # Never trust client-supplied forwarding headers as an authentication source.
+    configured=os.environ.get('RENDERDIFF_API_TOKEN','')
+    if not configured or len(configured)<32:
+        raise HTTPException(503,'public assurance authentication is not configured')
+    supplied=request.headers.get('authorization','')
+    if len(supplied)>4096 or not supplied.startswith('Bearer ') or not hmac.compare_digest(supplied[7:],configured):
+        raise HTTPException(401,'authentication required',headers={'WWW-Authenticate':'Bearer'})
+    now=time.monotonic()
+    try: limit=int(os.environ.get('RENDERDIFF_RATE_LIMIT','30'))
+    except ValueError: raise HTTPException(503,'invalid rate-limit configuration')
+    limit=max(1,min(limit,600))
+    key=hmac.new(configured.encode(),supplied.encode(), 'sha256').hexdigest()
+    with _rate_lock:
+        if len(_rate_windows)>=_MAX_RATE_KEYS:
+            for k in list(_rate_windows):
+                if not _rate_windows[k] or _rate_windows[k][-1]<now-60: del _rate_windows[k]
+        window=_rate_windows.setdefault(key,deque())
+        while window and window[0]<=now-60: window.popleft()
+        if len(window)>=limit: raise HTTPException(429,'rate limit exceeded',headers={'Retry-After':'60'})
+        window.append(now)
+
+
+async def _run_bounded(fn, *args, **kwargs):
+    if not _slots.acquire(blocking=False):
+        raise HTTPException(503,'assurance service is busy',headers={'Retry-After':'5'})
+    try:
+        return await asyncio.to_thread(fn,*args,**kwargs)
+    finally:
+        _slots.release()
 
 @app.middleware('http')
 async def limits(request:Request, call_next):
     if request.method in {'POST','PUT'}:
+        try: _authorize(request)
+        except HTTPException as exc: return JSONResponse({'detail':exc.detail},status_code=exc.status_code,headers=exc.headers)
         length=request.headers.get('content-length')
         if length and (not length.isdigit() or int(length)>MAX_BYTES+65536):
             return JSONResponse({'detail':'request too large'},status_code=413)
@@ -29,20 +67,25 @@ async def limits(request:Request, call_next):
             if len(data)>MAX_BYTES+65536:
                 return JSONResponse({'detail':'request too large'},status_code=413)
         request._body=bytes(data)
-    return await call_next(request)
+    response=await call_next(request)
+    response.headers['Cache-Control']='no-store'
+    response.headers['X-Content-Type-Options']='nosniff'
+    response.headers['Referrer-Policy']='no-referrer'
+    response.headers['X-Frame-Options']='DENY'
+    return response
 
 def response(report,fmt):
     if len(json.dumps(report,ensure_ascii=False,allow_nan=False).encode())>MAX_REPORT_BYTES: raise HTTPException(413,'report amplification limit exceeded')
-    if fmt=='json': return JSONResponse(report)
-    if fmt=='html': return HTMLResponse(html_report(report),headers={'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'",'X-Content-Type-Options':'nosniff'})
-    if fmt=='sarif': return JSONResponse(sarif_report(report))
+    if fmt=='json': return JSONResponse(report,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Cache-Control':'no-store'})
+    if fmt=='html': return HTMLResponse(html_report(report),headers={'Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'",'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'})
+    if fmt=='sarif': return JSONResponse(sarif_report(report),headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Cache-Control':'no-store'})
     if fmt=='pdf':
         from .pdf_report import pdf_report
-        return Response(pdf_report(report),media_type='application/pdf',headers={'Content-Disposition':'attachment; filename=renderdiff-report.pdf','X-Content-Type-Options':'nosniff'})
+        return Response(pdf_report(report),media_type='application/pdf',headers={'Content-Disposition':'attachment; filename=renderdiff-report.pdf','X-Content-Type-Options':'nosniff','Cache-Control':'no-store'})
     raise HTTPException(400,'unsupported report format')
 
 @app.get('/health')
-def health(): return {'status':'ok','version':'0.5.0b1'}
+def health(): return {'status':'ok','version':'0.6.0b1'}
 
 @app.post('/v1/analyze')
 async def analyze_endpoint(request:Request):
@@ -51,11 +94,13 @@ async def analyze_endpoint(request:Request):
         if not isinstance(payload,dict): raise ValueError('JSON object required')
         if payload.get('browser'): raise ValueError('active browser observation is not enabled on the public endpoint')
         context=payload.pop('context',None)
-        if len(payload.get('text',''))>MAX_PUBLIC_CHARS: raise HTTPException(413,'public text limit exceeded')
-        report=await asyncio.to_thread(lambda: attach(analyze_request(payload),context=context))
-        return response(report,payload.get('format','json'))
+        if context is not None and len(json.dumps(context,ensure_ascii=False,allow_nan=False).encode())>65536: raise HTTPException(413,'context limit exceeded')
+        if not isinstance(payload.get('text'),str): raise ValueError('text must be a string')
+        if len(payload['text'])>MAX_PUBLIC_CHARS: raise HTTPException(413,'public text limit exceeded')
+        report=await _run_bounded(lambda: attach(analyze_request(payload),context=context))
+        return await _run_bounded(response,report,payload.get('format','json'))
     except HTTPException: raise
-    except (ValueError,TypeError,UnicodeError) as exc: raise HTTPException(400,str(exc)) from exc
+    except (ValueError,TypeError,UnicodeError) as exc: raise HTTPException(400,'invalid assurance input') from exc
 
 @app.post('/v1/upload')
 async def upload_endpoint(file:UploadFile=File(...),format:str='json'):
@@ -63,24 +108,25 @@ async def upload_endpoint(file:UploadFile=File(...),format:str='json'):
         data=await file.read(MAX_BYTES+1)
         if len(data)>MAX_BYTES: raise HTTPException(413,'file too large')
         if (file.filename or '').lower().endswith(('.pdf','.docx','.xlsx','.pptx')) or data.startswith((b'%PDF-',b'PK\x03\x04')):
-            report=await asyncio.to_thread(extract_document,data,filename=file.filename or 'evidence.bin')
+            report=await _run_bounded(extract_document,data,filename=file.filename or 'evidence.bin')
         else:
-            report=await asyncio.to_thread(acquire_bytes,data,filename=file.filename or 'evidence.bin',content_type=file.content_type)
-        return response(report,format)
+            report=await _run_bounded(acquire_bytes,data,filename=file.filename or 'evidence.bin',content_type=file.content_type)
+        return await _run_bounded(response,report,format)
     except HTTPException: raise
-    except RuntimeError as exc: raise HTTPException(503,str(exc)) from exc
-    except (ValueError,TypeError,UnicodeError) as exc: raise HTTPException(400,str(exc)) from exc
+    except RuntimeError as exc: raise HTTPException(503,'required isolated observer unavailable') from exc
+    except (ValueError,TypeError,UnicodeError) as exc: raise HTTPException(400,'invalid assurance input') from exc
     finally: await file.close()
 
 @app.get('/',response_class=HTMLResponse)
 def home():
     from pathlib import Path
-    return HTMLResponse(Path(__file__).with_name('web').joinpath('index.html').read_text(encoding='utf-8'),headers={'Content-Security-Policy':"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'",'X-Content-Type-Options':'nosniff'})
+    return HTMLResponse(Path(__file__).with_name('web').joinpath('index.html').read_text(encoding='utf-8'),headers={'Content-Security-Policy':"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'",'X-Content-Type-Options':'nosniff','Cache-Control':'no-store'})
 
 @app.post('/v1/export/{format}')
 async def export_endpoint(format:str,request:Request):
     from .receipt import verify
     report=await request.json()
+    if not isinstance(report,dict): raise HTTPException(400,'report must be an object')
     if not verify(report): raise HTTPException(400,'report receipt integrity failed')
     if format not in {'html','sarif','pdf'}: raise HTTPException(400,'unsupported format')
-    return response(report,format)
+    return await _run_bounded(response,report,format)
