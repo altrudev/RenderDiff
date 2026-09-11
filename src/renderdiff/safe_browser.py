@@ -29,17 +29,20 @@ def bubblewrap_chromium(source, *, timeout=12, executable=None):
         return {'available':False,'observer':'isolated-chromium','reason':'sandbox-prerequisite-unavailable'}
     probe='''<script>(function(){function emit(){try{var t=(document.body&&document.body.innerText)||"";var m=document.createElement("meta");m.id="renderdiff-observer";m.setAttribute("data-text",btoa(unescape(encodeURIComponent(t))));document.head.appendChild(m)}catch(e){}};if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",emit,{once:true});else emit()})();</script>'''
     with tempfile.TemporaryDirectory(prefix='renderdiff-browser-') as directory:
-        root=Path(directory); (root/'evidence.html').write_text(source+probe,encoding='utf-8')
-        cmd=[bwrap,'--unshare-all','--new-session','--die-with-parent','--ro-bind','/usr','/usr','--ro-bind-try','/lib','/lib','--ro-bind-try','/lib64','/lib64','--ro-bind-try','/snap','/snap','--ro-bind','/etc','/etc','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--tmpfs','/home','--bind',directory,'/work','--chdir','/work','--setenv','HOME','/work','--setenv','XDG_RUNTIME_DIR','/tmp',exe,'--headless','--disable-gpu','--no-sandbox','--disable-extensions','--disable-background-networking','--disable-component-update','--disable-sync','--disable-default-apps','--no-first-run','--disable-dev-shm-usage','--user-data-dir=/work/profile','--virtual-time-budget=1200','--dump-dom','file:///work/evidence.html']
+        root=Path(directory); (root/'run').mkdir(mode=0o700); (root/'tmp').mkdir(mode=0o700); (root/'evidence.html').write_text(source+probe,encoding='utf-8')
+        cmd=[bwrap,'--unshare-all','--new-session','--die-with-parent','--cap-drop','ALL','--clearenv','--setenv','PATH','/usr/bin:/bin','--setenv','LANG','C.UTF-8','--ro-bind','/usr','/usr','--ro-bind-try','/lib','/lib','--ro-bind-try','/lib64','/lib64','--ro-bind-try','/snap','/snap','--tmpfs','/etc','--ro-bind-try','/etc/ssl','/etc/ssl','--ro-bind-try','/etc/fonts','/etc/fonts','--proc','/proc','--dev','/dev','--tmpfs','/tmp','--tmpfs','/home','--bind',directory,'/work','--chdir','/work','--setenv','TMPDIR','/work/tmp','--setenv','HOME','/work','--setenv','XDG_RUNTIME_DIR','/work/run',exe,'--headless','--disable-gpu','--no-sandbox','--disable-extensions','--disable-background-networking','--disable-component-update','--disable-sync','--disable-default-apps','--no-first-run','--disable-dev-shm-usage','--user-data-dir=/work/profile','--virtual-time-budget=1200','--dump-dom','file:///work/evidence.html']
         try:
             def limits():
                 import resource
                 resource.setrlimit(resource.RLIMIT_CPU,(8,8))
                 resource.setrlimit(resource.RLIMIT_FSIZE,(8*1024*1024,8*1024*1024))
-            cp=subprocess.run(cmd,capture_output=True,text=True,timeout=timeout,preexec_fn=limits,env={'PATH':'/usr/bin:/bin','LANG':'C.UTF-8'})
+            with (root/'stdout.html').open('wb') as output:
+                cp=subprocess.run(cmd,stdout=output,stderr=subprocess.DEVNULL,timeout=timeout,preexec_fn=limits,env={'PATH':'/usr/bin:/bin','LANG':'C.UTF-8'})
+            if (root/'stdout.html').stat().st_size>8*1024*1024: raise ValueError('browser output limit exceeded')
+            captured=(root/'stdout.html').read_text(encoding='utf-8',errors='replace')
         except (subprocess.TimeoutExpired,OSError) as exc:
             return {'available':False,'observer':'isolated-chromium','reason':type(exc).__name__}
-        match=_MARKER.search(cp.stdout)
+        match=_MARKER.search(captured)
         if not match:
             return {'available':False,'observer':'isolated-chromium','reason':'probe-not-observed','exit_code':cp.returncode}
         try: text=base64.b64decode(html.unescape(match.group(1)),validate=True).decode()

@@ -1,5 +1,4 @@
 import io, json, sys, unittest, zipfile
-sys.path.insert(0,'src')
 from renderdiff import analyze
 from renderdiff.assurance import attach
 from renderdiff.ingest import acquire_bytes, acquire_url

@@ -6,8 +6,13 @@ def observe_tokenizer(text: str, tokenizer: Callable[[str], list], *, name: str=
     tokens=tokenizer(text)
     if not isinstance(tokens,list):
         raise TypeError('tokenizer must return a list')
+    if any(type(t) not in (int,str) for t in tokens):
+        raise TypeError('tokenizer tokens must be integers or strings')
+    if len(tokens)>100000:
+        raise ValueError('tokenizer output exceeds supported bounds')
     try:
-        json.dumps(tokens, ensure_ascii=False, sort_keys=True, separators=(',',':'))
+        encoded=json.dumps(tokens, ensure_ascii=False, sort_keys=True, separators=(',',':'))
+        if len(encoded.encode('utf-8'))>4_000_000: raise ValueError('tokenizer output exceeds byte limit')
     except (TypeError,ValueError) as e:
         raise TypeError('tokenizer tokens must be deterministic JSON data') from e
     return {'available':True,'name':name,'token_count':len(tokens),'tokens':tokens}

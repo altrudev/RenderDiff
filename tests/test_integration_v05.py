@@ -1,6 +1,5 @@
 import io,json,os,sys,tempfile,unittest,zipfile,hashlib
 from pathlib import Path
-sys.path.insert(0,'src')
 from renderdiff import analyze
 from renderdiff.assurance import attach
 from renderdiff.bundle import create_bundle,verify_bundle
@@ -12,25 +11,28 @@ from renderdiff.receipt import verify
 from renderdiff.pdf_report import pdf_report
 from renderdiff.service import app
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 from pypdf import PdfReader
 
 class IntegrationTests(unittest.TestCase):
     def test_public_api_and_exports(self):
-        with TestClient(app) as c:
-            r=c.post('/v1/analyze',json={'text':'pay\u200bment'});self.assertEqual(r.status_code,200)
-            report=r.json();self.assertTrue(verify(report));self.assertEqual(report['views']['assurance']['coverage']['model_input'],'unavailable')
-            self.assertFalse(report['views']['assurance']['complete'])
-            for fmt in ('html','sarif','pdf'):
-                response=c.post('/v1/export/'+fmt,json=report);self.assertEqual(response.status_code,200)
-                if fmt=='pdf':self.assertTrue(response.content.startswith(b'%PDF-'))
-            report['summary']['severity']='forged'
-            self.assertEqual(c.post('/v1/export/html',json=report).status_code,400)
-            self.assertEqual(c.post('/v1/analyze',json={'text':'x'*64001}).status_code,413)
-            self.assertEqual(c.post('/v1/analyze',json={'text':'x','browser':True}).status_code,400)
+        with patch.dict(os.environ,{'RENDERDIFF_API_TOKEN':'test-only-'+'a'*48}):
+            with TestClient(app,headers={'Authorization':'Bearer test-only-'+'a'*48}) as c:
+                r=c.post('/v1/analyze',json={'text':'pay\u200bment'});self.assertEqual(r.status_code,200)
+                report=r.json();self.assertTrue(verify(report));self.assertEqual(report['views']['assurance']['coverage']['model_input'],'unavailable')
+                self.assertFalse(report['views']['assurance']['complete'])
+                for fmt in ('html','sarif','pdf'):
+                    response=c.post('/v1/export/'+fmt,json=report);self.assertEqual(response.status_code,200)
+                    if fmt=='pdf':self.assertTrue(response.content.startswith(b'%PDF-'))
+                report['summary']['severity']='forged'
+                self.assertEqual(c.post('/v1/export/html',json=report).status_code,400)
+                self.assertEqual(c.post('/v1/analyze',json={'text':'x'*64001}).status_code,413)
+                self.assertEqual(c.post('/v1/analyze',json={'text':'x','browser':True}).status_code,400)
     def test_upload_limits_and_rejection(self):
-        with TestClient(app) as c:
-            self.assertEqual(c.post('/v1/upload',files={'file':('bad.bin',b'\x00\x01','application/octet-stream')}).status_code,400)
-            self.assertEqual(c.post('/v1/upload',files={'file':('big.txt',b'x'*4000001,'text/plain')}).status_code,413)
+        with patch.dict(os.environ,{'RENDERDIFF_API_TOKEN':'test-only-'+'a'*48}):
+            with TestClient(app,headers={'Authorization':'Bearer test-only-'+'a'*48}) as c:
+                self.assertEqual(c.post('/v1/upload',files={'file':('bad.bin',b'\x00\x01','application/octet-stream')}).status_code,400)
+                self.assertEqual(c.post('/v1/upload',files={'file':('big.txt',b'x'*4000001,'text/plain')}).status_code,413)
     def test_bundle_exact_original_bytes(self):
         source=b'hello\xff';r=acquire_bytes(source,filename='x.txt');bundle=create_bundle(r,source)
         self.assertTrue(verify_bundle(bundle))
