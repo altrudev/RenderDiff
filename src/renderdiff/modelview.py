@@ -12,6 +12,7 @@ def compare_model_views(source, visible, tokenizer, *, name, model_id=None, maxi
         if not isinstance(tokens,list) or len(tokens)>maximum_tokens or any(type(t) not in (int,str) for t in tokens):
             raise ValueError('tokenizer must return bounded integer/string tokens')
         observations[label]={'text_sha256':hashlib.sha256(text.encode()).hexdigest(),'tokens':tokens,'token_count':len(tokens)}
+    if len(json.dumps(observations,ensure_ascii=False,allow_nan=False).encode())>4_000_000: raise ValueError('tokenizer output exceeds byte limit')
     a=observations['machine']['tokens']; b=observations['human_projection']['tokens']
     return {'available':True,'tokenizer':name,'model_id':model_id,'views':observations,
             'equal':a==b,'token_count_delta':len(a)-len(b),

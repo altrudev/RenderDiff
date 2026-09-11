@@ -8,7 +8,7 @@ RenderDiff is an open-source, evidence-first tool in the DDC/DDCAL ecosystem. It
 
 ## Status
 
-The v0.5.0 development candidate adds document ingestion, isolated browser observation, model/semantic observer interfaces, a local web service, portable evidence bundles, signed receipt support, report exports and CI integration. It is undergoing review and is **not a production-certified v1.0 release**. The existing v0.4 engine and public API remain available. No proprietary DDC scoring, policy, authority routing or radial-frequency internals are published.
+The v0.6.1 beta re-audit candidate adds document ingestion, isolated browser observation, model/semantic observer interfaces, a local web service, portable evidence bundles, signed receipt support, report exports and CI integration. It is undergoing review and is **not a production-certified v1.0 release**. The existing v0.4 engine and public API remain available. No proprietary DDC scoring, policy, authority routing or radial-frequency internals are published.
 
 ### What is implemented
 
@@ -24,7 +24,7 @@ The v0.5.0 development candidate adds document ingestion, isolated browser obser
 
 ## Install
 
-Python 3.10+ is declared. The current integration tests and wheel smoke test were run on Python 3.14; the remaining supported interpreters require release-matrix validation.
+Python 3.10–3.14 are the declared supported versions; the current release matrix must be reproduced for each candidate. The full 86-test suite has passed on each interpreter after correcting the isolated-runtime mapping. See `docs/RELEASE_GATES.md` for the exact scope and remaining production gates.
 
 ```bash
 python -m venv .venv
@@ -64,7 +64,7 @@ report = analyze_request({'text': 'payment', 'content_type': 'text/plain'})
 report = acquire_file('sample.txt')
 ```
 
-The v0.5 assurance layer is additive. The original `renderdiff.assurance.v1` report shape remains available; `views.assurance` records observer coverage, materiality and unavailable channels. It does not silently convert unavailable observations into clean verdicts.
+The v0.6 assurance layer is additive. The original `renderdiff.assurance.v1` report shape remains available; `views.assurance` records observer coverage, materiality and unavailable channels. It does not silently convert unavailable observations into clean verdicts.
 
 ### Model-facing channels
 
@@ -85,7 +85,7 @@ python -m pip install -e '.[api,documents,pdf]'
 python -m uvicorn renderdiff.service:app --host 127.0.0.1 --port 8765
 ```
 
-Open `http://127.0.0.1:8765/` on the same machine. The interface supports paste/upload, side-by-side views, findings and JSON/HTML/SARIF/PDF exports. The service is a local integration candidate, **not a claim that ddcal.ca has been deployed or updated**. Public deployment requires authentication, rate limits, TLS, privacy/retention controls, isolated workers, egress restrictions and a separate security review.
+Configure `RENDERDIFF_API_TOKEN` first and open `http://127.0.0.1:8765/` on the same machine. Enter the credential in the session-only access field. See `docs/DEPLOYMENT.md` for the local startup and production requirements. The interface supports paste/upload, side-by-side views, findings and JSON/HTML/SARIF/PDF exports. The service is a local integration candidate, **not a claim that ddcal.ca has been deployed or updated**. Public deployment requires authentication, rate limits, TLS, privacy/retention controls, isolated workers, egress restrictions and a separate security review.
 
 ## Evidence integrity
 
@@ -123,3 +123,17 @@ The library has bounded input interfaces; the public service applies tighter lim
 ## License
 
 Apache-2.0. RenderDiff is a public assurance component; private DDC implementation details and authority policies remain outside this repository.
+
+## Release security and deployment
+
+See `docs/SECURITY.md`, `docs/DEPLOYMENT.md`, and `docs/RELEASE_GATES.md`. The v0.6.1 beta includes authenticated local API access, bounded concurrency and hardened extraction/runtime isolation. Production multi-user identity, distributed quotas, external security review, configured model-provider validation and complete visual/OCR coverage remain explicit gates rather than implied guarantees.
+
+Run `python tools/release_matrix.py` and `python tools/qualify_release.py` to reproduce the release evidence locally. The qualification returns `PASS-CANDIDATE` only for the verified development scope; production approval is a separate gate.
+
+## Full-evidence resource limits
+
+The v0.6.1 beta full-evidence engine accepts at most 64,000 decoded characters and 256,000 UTF-8 bytes, with an 8 MB canonical report budget and 10,000 findings. The original-document intake limit is 4 MB, but a document whose extracted text exceeds the full-evidence budget is rejected rather than partially certified. This is an explicit bounded mode, not unlimited large-file streaming. Larger evidence requires a separate windowed/streaming assurance workflow with complete coverage accounting.
+
+A clean result means no material divergence was observed by the performed observers. It does not establish that all content is safe, authentic, or semantically equivalent. Model probes describe the exact submitted request and observed response; provider-internal preprocessing is not observable unless separately instrumented. The optional browser observer is isolated and cannot establish perfect visual perception.
+
+The independent re-audit is tracked in `docs/reviews/RENDERDIFF_0.6.1_REAUDIT.md` and the corresponding review PR. Production deployment, independent security review, and owner release approval remain separate gates.

@@ -2,8 +2,9 @@ from __future__ import annotations
 import json
 from .engine import analyze
 
-MAX_TEXT_CHARS = 1_000_000
-MAX_TEXT_BYTES = 4_000_000
+from .limits import MAX_ANALYSIS_CHARS, MAX_ANALYSIS_BYTES
+MAX_TEXT_CHARS = MAX_ANALYSIS_CHARS
+MAX_TEXT_BYTES = MAX_ANALYSIS_BYTES
 MAX_PROVENANCE_BYTES = 64_000
 
 

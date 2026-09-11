@@ -17,9 +17,12 @@ def create_bundle(report, source):
     return buf.getvalue()
 
 def verify_bundle(data):
+    if not isinstance(data,bytes) or len(data)>16_000_000: return False
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             if sorted(z.namelist())!=['evidence.bin','manifest.json','report.json']:return False
+            limits={'evidence.bin':4_000_000,'manifest.json':65536,'report.json':8_000_000}
+            if any(z.getinfo(n).file_size>limit for n,limit in limits.items()):return False
             manifest=json.loads(z.read('manifest.json')); report=json.loads(z.read('report.json')); source=z.read('evidence.bin')
             return verify(report) and manifest['report_sha256']==digest(report) and manifest['source_sha256']==hashlib.sha256(source).hexdigest() and manifest['source_bytes']==len(source)
-    except (ValueError,KeyError,TypeError,zipfile.BadZipFile,UnicodeError):return False
+    except (ValueError,KeyError,TypeError,zipfile.BadZipFile,UnicodeError,OverflowError,RecursionError,OSError):return False

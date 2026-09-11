@@ -8,6 +8,8 @@ def human_report(result: dict) -> str:
         f"Engine: {result.get('engine_version')}",
         f"Severity: {s['severity'].upper()}",
         f"Material divergence: {'YES' if s['material_divergence'] else 'NO'}",
+        f"Assurance disposition: {s.get('assurance_disposition', 'not-evaluated')}",
+        "A clean result applies only to performed observers; unavailable checks are not safety evidence.",
         f"Findings: {s['finding_count']}",
         "",
         "Human-visible representation:",

@@ -8,10 +8,12 @@ def main():
     from renderdiff.ingest import acquire_file
     from renderdiff.exports import sarif_report
     import json
+    if not a.paths: p.error('at least one evidence path is required')
     reports=[];fail=False
     for name in a.paths:
         path=Path(name)
         if not path.is_file() or path.is_symlink():raise ValueError('regular evidence file required')
+        if path.stat().st_size>4_000_000: raise ValueError('evidence exceeds input limit')
         r=acquire_file(path);reports.append({'path':str(path),'report':r})
         fail |= r['summary'].get('material_divergence',False)
     if a.format=='sarif':

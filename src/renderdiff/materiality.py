@@ -71,11 +71,30 @@ def assess_representation_divergence(pairwise: list[dict], findings: list[dict])
             continue
 
         boundary, categories = rule
+        equal = bool(comparison.get("equal"))
         evidence_findings = [
             finding
             for category in sorted(categories)
             for finding in by_category.get(category, [])
         ]
+        # A detector elsewhere in the source must not promote this edge.
+        # The bounded changed-middle interval is conservative: it can contain
+        # unchanged material when there are multiple disjoint edits. Findings
+        # without source coordinates are retained as global evidence, not
+        # incorrectly assigned a fabricated location.
+        delta = comparison.get("delta") or {}
+        source_side = "left" if comparison.get("left") == "machine" else (
+            "right" if comparison.get("right") == "machine" else None
+        )
+        source_range = delta.get(source_side + "_range") if source_side else None
+        if not equal and isinstance(source_range, dict):
+            start, end = source_range.get("start"), source_range.get("end")
+            if type(start) is int and type(end) is int and start <= end:
+                evidence_findings = [
+                    finding for finding in evidence_findings
+                    if not (type(finding.get("start")) is int and type(finding.get("end")) is int)
+                    or (finding["start"] < end and finding["end"] > start)
+                ]
         equal = bool(comparison.get("equal"))
         detector_materiality = _max_materiality(evidence_findings)
 

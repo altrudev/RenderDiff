@@ -3,12 +3,13 @@ import argparse, json, sys
 from pathlib import Path
 from .engine import analyze_bytes
 from .assurance import attach
-from .ingest import acquire_file, acquire_url
+from .ingest import acquire_file, acquire_url, read_evidence_file
 from .exports import html_report, sarif_report
 from .receipt import verify
 from .report import human_report
 from .browser import chromium_observe_html
 from .tokenizers import tiktoken_adapter, sentencepiece_adapter
+from .limits import MAX_ANALYSIS_BYTES, EvidenceLimitError
 
 def main(argv=None):
     p=argparse.ArgumentParser(prog="renderdiff", description="Compare human-visible and machine-facing representations of text.")
@@ -39,21 +40,27 @@ def main(argv=None):
         result=acquire_url(args.url,fetcher=pinned_public_fetch)
         data=None
     elif args.file:
-        data=Path(args.file).read_bytes()
+        data=read_evidence_file(args.file)
+        if not args.html and Path(args.file).suffix.lower() not in {'.pdf','.docx','.xlsx','.pptx'} and data.startswith((b'%PDF-',b'PK\x03\x04')):
+            p.error('binary document requires an explicit supported document extension')
     elif args.text is not None:
         data=args.text.encode("utf-8")
     elif not args.url:
-        data=sys.stdin.buffer.read()
+        data=sys.stdin.buffer.read(4_000_001)
+        if len(data)>4_000_000: p.error('evidence exceeds input limit')
     tokenizer=None; tokenizer_name="custom"
     if args.tiktoken:
         tokenizer,tokenizer_name=tiktoken_adapter(args.tiktoken)
     elif args.sentencepiece:
         tokenizer,tokenizer_name=sentencepiece_adapter(args.sentencepiece)
     if args.url:
-        pass
+        if tokenizer is not None or args.browser: p.error('URL acquisition does not support tokenizer/browser observers; save the evidence and analyze it locally')
     elif args.file and not args.html and Path(args.file).suffix.lower() in {".pdf",".docx",".xlsx",".pptx"}:
+        if tokenizer is not None or args.browser: p.error('document extraction does not support tokenizer/browser observers')
         result=acquire_file(args.file)
     else:
+        if args.html and args.file and Path(args.file).suffix.lower() in {'.pdf','.docx','.xlsx','.pptx'}: p.error('document bytes cannot be interpreted as HTML')
+        if len(data)>MAX_ANALYSIS_BYTES: p.error('full-evidence analysis limit exceeded; no clean verdict issued')
         result=attach(analyze_bytes(
         data, content_type="text/html" if args.html else "text/plain",
         tokenizer=tokenizer, tokenizer_name=tokenizer_name,
