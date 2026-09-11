@@ -8,7 +8,31 @@ RenderDiff is an open-source, evidence-first tool in the DDC/DDCAL ecosystem. It
 
 ## Status
 
-The v0.6.1 beta re-audit candidate adds document ingestion, isolated browser observation, model/semantic observer interfaces, a local web service, portable evidence bundles, signed receipt support, report exports and CI integration. It is undergoing review and is **not a production-certified v1.0 release**. The existing v0.4 engine and public API remain available. No proprietary DDC scoring, policy, authority routing or radial-frequency internals are published.
+**v0.6.1 beta is the current public beta on `main`.** Its development qualification is PASS-CANDIDATE; the production-release gate remains explicitly pending. RenderDiff is not a production-certified v1.0 release, and no proprietary DDC scoring, policy, authority routing or radial-frequency internals are published.
+
+## 30-second quick start
+
+```bash
+git clone https://github.com/altrudev/RenderDiff.git
+cd RenderDiff
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -e .
+printf 'pay\u200bment' | renderdiff --json
+```
+
+The example contains an invisible U+200B ZERO WIDTH SPACE. A human can read `payment`, while the stored machine-facing representation is different. RenderDiff records the exact evidence, compares the representations and reports the materiality of the divergence.
+
+Useful next commands:
+
+```bash
+renderdiff --text 'microsоft.com' --json
+renderdiff --file sample.html --html --fail-on-material
+renderdiff --file document.pdf --format json --output report.json
+renderdiff-scan --fail-on-material --format sarif --output renderdiff.sarif sample.txt
+```
+
+**Start here:** use the CLI for a single artifact, `renderdiff-scan` for CI/repository checks, or the local web interface for paste/upload workflows. A clean result means no material divergence was observed by the checks that actually ran; it is not a universal safety certificate.
 
 ### What is implemented
 
@@ -107,10 +131,11 @@ A SHA-256 receipt detects alteration relative to a trusted digest; it does not p
 ```bash
 renderdiff-scan --fail-on-material --format sarif --output renderdiff.sarif sample.txt
 python -m unittest discover -s tests -q
-python tools/qualify_v05.py /tmp/renderdiff-qualification.json
+python tools/release_matrix.py
+python tools/qualify_release.py
 ```
 
-The pre-commit configuration and `action.yml` are opt-in. No GitHub Actions workflow is enabled. The v0.5 candidate qualification on 2026-09-06 passed 60 integration/regression tests and 2,012 deterministic cases repeated twice. It is a public DDC-aligned qualification, not a private DDC certification. The production-release gate is pending. See `docs/V05.md` and `docs/CI.md`.
+The pre-commit configuration and `action.yml` are opt-in. No GitHub Actions workflow is enabled. The v0.6.1 beta qualification passed 86 tests on each supported CPython version from 3.10 through 3.14 using freshly installed wheels, plus 2,012 deterministic benign/adversarial cases repeated twice. It is a public DDC-aligned development qualification, not a private DDC certification or independent security certification. The production-release gate remains pending. See `docs/RELEASE_GATES.md`, `docs/reviews/RENDERDIFF_0.6.1_REAUDIT.md`, and `docs/CI.md`.
 
 ## Limits and security boundaries
 
