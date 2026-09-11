@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: renderdiff
+        name: RenderDiff assurance
+        entry: python tools/ci.py --fail-on-material
+        language: system
+        types: [text]
+        pass_filenames: true
+        require_serial: true

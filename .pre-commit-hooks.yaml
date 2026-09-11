@@ -1,0 +1,7 @@
+- id: renderdiff
+  name: RenderDiff representation assurance
+  entry: renderdiff-scan --fail-on-material
+  language: python
+  types: [text]
+  pass_filenames: true
+  require_serial: true
